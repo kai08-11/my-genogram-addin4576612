@@ -190,6 +190,13 @@
         </select>
       </div>
       <div style="background:#fff; padding:5px 10px; border-radius:5px; border:1px solid #ccc;">
+        <label style="font-weight:bold; color:#000000;">🔤 字體：</label>
+        <select id="draw-font" style="font-size:14px; padding:3px;" onchange="changeFontSelected()">
+          <option value="sans-serif">預設字體</option>
+          <option value="標楷體, BiauKai, DFKai-SB">標楷體</option>
+        </select>
+      </div>
+      <div style="background:#fff; padding:5px 10px; border-radius:5px; border:1px solid #ccc;">
         <label style="font-weight:bold; color:#000000;">🎨 顏色：</label>
         <input type="color" id="draw-color" value="#000000" onchange="changeColorSelected()">
       </div>
@@ -234,6 +241,18 @@
     const autoLayer = document.getElementById('auto-layer');
     const customLayer = document.getElementById('custom-layer');
 
+    // 輔助函式：安全地設定 SVG 內容 (避免部分瀏覽器不支援 SVG innerHTML)
+    function setSVGHtmlSafe(el, htmlString) {
+      try {
+        el.innerHTML = htmlString;
+      } catch (e) {
+        while (el.firstChild) el.removeChild(el.firstChild);
+        let tempDiv = document.createElement('div');
+        tempDiv.innerHTML = '<svg>' + htmlString + '</svg>';
+        Array.from(tempDiv.firstChild.childNodes).forEach(node => el.appendChild(node));
+      }
+    }
+
     // 本地儲存與載入機制
     const LOCAL_STORAGE_KEY = "genogram_save_data";
     const defaultData = {
@@ -252,7 +271,6 @@
       return defaultData;
     }
 
-    // 儲存時將所有節點座標偏移以及自訂畫布內容一併封裝
     function syncToBackend(actionDesc) {
       const payload = { 
         people: people, 
@@ -295,9 +313,9 @@
           cohabitGroups = data.cohabitGroups || [];
           nodeOffsets = data.nodeOffsets || {};
           if (data.customLayerHTML !== undefined) {
-            customLayer.innerHTML = data.customLayerHTML;
+            setSVGHtmlSafe(customLayer, data.customLayerHTML);
           } else {
-            customLayer.innerHTML = '';
+            while (customLayer.firstChild) customLayer.removeChild(customLayer.firstChild);
           }
           renderForms();
           syncToBackend();
@@ -308,7 +326,6 @@
         } catch (err) {
           alert("檔案解析失敗，請確認是否為正確的 JSON 檔案！");
         }
-        // 清除 input 的值，允許重複匯入相同的檔案
         event.target.value = "";
       };
       reader.readAsText(file);
@@ -318,9 +335,8 @@
     let people = backendState.people || [];
     let cohabitGroups = backendState.cohabitGroups || [];
     let nodeOffsets = backendState.nodeOffsets || {};
-    // 還原先前儲存的自訂畫布內容
     if (backendState.customLayerHTML) {
-      customLayer.innerHTML = backendState.customLayerHTML;
+      setSVGHtmlSafe(customLayer, backendState.customLayerHTML);
     }
 
     let isDrawing = false; let isDraggingNode = false; let draggedNodeId = null;
@@ -381,7 +397,20 @@
       });
     }
 
-    function clearAllPeople() { if (confirm("確定清除所有人與畫布所有內容？")) { people = []; cohabitGroups = []; nodeOffsets = {}; customLayer.innerHTML = ''; renderForms(); syncToBackend(); } }
+    // 修復：改用 removeChild 清除 SVG 節點，解決舊引擎 innerHTML 無效問題
+    function clearAllPeople() { 
+      if (confirm("確定清除所有人與畫布所有內容？")) { 
+        people = []; 
+        cohabitGroups = []; 
+        nodeOffsets = {}; 
+        while (customLayer.firstChild) {
+          customLayer.removeChild(customLayer.firstChild);
+        }
+        renderForms(); 
+        syncToBackend(); 
+      } 
+    }
+    
     function addPerson() { people.push({ id: getNextID(), gender: 'M', age: '', disability: '否', status: '存', isClient: '否', spouse: '', hasChildren: '否', children: [], isTwin: '否', twinSiblings: [] }); renderForms(); syncToBackend(); }
     function removePerson(id) { people = people.filter(p => p.id !== id); people.forEach(p => { if (p.spouse === id) p.spouse = ''; if (p.children) p.children = p.children.filter(c => c !== id); if (p.twinSiblings) p.twinSiblings = p.twinSiblings.filter(c => c !== id); }); cohabitGroups = cohabitGroups.map(g => g.filter(x => x !== id)); delete nodeOffsets[id]; renderForms(); syncToBackend(); }
     function movePersonUp(idx) { if (idx > 0) { let temp = people[idx]; people[idx] = people[idx - 1]; people[idx - 1] = temp; renderForms(); syncToBackend(); } }
@@ -450,7 +479,11 @@
     }
 
     function renderGenogram() {
-      autoLayer.innerHTML = ''; let coords = getFinalCoordinates();
+      // 修復：改用 removeChild 清除 SVG 節點
+      while (autoLayer.firstChild) {
+        autoLayer.removeChild(autoLayer.firstChild);
+      }
+      let coords = getFinalCoordinates();
       let minX = Infinity, maxX = -Infinity, minY = 0, maxY = 600;
       Object.values(coords).forEach(c => { if (c.x < minX) minX = c.x; if (c.x > maxX) maxX = c.x; if (c.y > maxY) maxY = c.y; });
       if (minX === Infinity) minX = 0; if (maxX === -Infinity) maxX = 1200;
@@ -599,11 +632,30 @@
         let target = evt.target; let customParent = target.closest('.custom-element'); if (customParent) { selectElement(customParent); isDrawing = true; startPt = pos; } else { selectElement(null); }
       } else if (mode === 'text') {
         let textStr = prompt("請輸入標註文字:");
-        if (textStr) { let fontSize = Math.max(12, size * 5); let g = createCustomGroup(); let text = document.createElementNS("http://www.w3.org/2000/svg", "text"); text.setAttribute('x', pos.x); text.setAttribute('y', pos.y); text.setAttribute('fill', color); text.setAttribute('font-size', fontSize); text.setAttribute('font-family', 'sans-serif'); text.textContent = textStr; text.style.userSelect = 'none'; g.appendChild(text); customLayer.appendChild(g); setTimeout(() => { updateCenter(g); selectElement(g); }, 10); } document.getElementById('draw-mode').value = 'select';
+        if (textStr) { 
+          let fontSize = Math.max(12, size * 5); 
+          let g = createCustomGroup(); 
+          let text = document.createElementNS("http://www.w3.org/2000/svg", "text"); 
+          text.setAttribute('x', pos.x); text.setAttribute('y', pos.y); 
+          text.setAttribute('fill', color); 
+          text.setAttribute('font-size', fontSize); 
+          
+          // 修復：套用目前選擇的字體 (包含標楷體)
+          let fontFam = document.getElementById('draw-font') ? document.getElementById('draw-font').value : 'sans-serif';
+          text.setAttribute('font-family', fontFam); 
+          
+          text.textContent = textStr; 
+          text.style.userSelect = 'none'; 
+          g.appendChild(text); 
+          customLayer.appendChild(g); 
+          setTimeout(() => { updateCenter(g); selectElement(g); }, 10); 
+        } 
+        document.getElementById('draw-mode').value = 'select';
       } else if (mode === 'freehand') {
         isDrawing = true; currentDrawEl = createCustomGroup(); let path = document.createElementNS("http://www.w3.org/2000/svg", "path"); path.setAttribute('fill', 'none'); path.setAttribute('stroke', color); path.setAttribute('stroke-width', size); path.setAttribute('stroke-linecap', 'round'); path.setAttribute('stroke-linejoin', 'round'); path.setAttribute('d', `M ${pos.x} ${pos.y}`); currentDrawEl.appendChild(path); customLayer.appendChild(currentDrawEl);
       } else if (mode === 'line') { isDrawing = true; startPt = pos; currentDrawEl = createCustomGroup(); let line = document.createElementNS("http://www.w3.org/2000/svg", "line"); line.setAttribute('stroke', color); line.setAttribute('stroke-width', size); line.setAttribute('stroke-linecap', 'round'); line.setAttribute('x1', pos.x); line.setAttribute('y1', pos.y); line.setAttribute('x2', pos.x); line.setAttribute('y2', pos.y); currentDrawEl.appendChild(line); customLayer.appendChild(currentDrawEl); }
     });
+    
     svg.addEventListener('mousemove', function (evt) {
       let pos = getMousePos(evt);
       if (isDraggingNode && draggedNodeId && startPt) { let dx = pos.x - startPt.x; let dy = pos.y - startPt.y; if (!nodeOffsets[draggedNodeId]) nodeOffsets[draggedNodeId] = { x: 0, y: 0 }; nodeOffsets[draggedNodeId].x += dx; nodeOffsets[draggedNodeId].y += dy; startPt = pos; renderGenogram(); syncToBackend(); return; }
@@ -614,14 +666,39 @@
         let path = currentDrawEl.querySelector('path'); let d = path.getAttribute('d'); path.setAttribute('d', d + ` L ${pos.x} ${pos.y}`);
       } else if (mode === 'line' && currentDrawEl) { let line = currentDrawEl.querySelector('line'); line.setAttribute('x2', pos.x); line.setAttribute('y2', pos.y); }
     });
+    
     svg.addEventListener('mouseup', function (evt) {
       if (isDraggingNode) { isDraggingNode = false; draggedNodeId = null; startPt = null; return; }
       if (isDrawing && currentDrawEl) updateCenter(currentDrawEl); if (currentDrawEl) { selectElement(currentDrawEl); document.getElementById('draw-mode').value = 'select'; }
       isDrawing = false; currentDrawEl = null; startPt = null; syncToBackend();
     });
+    
     function transformSelected(action, val) { if (!selectedEl) return alert("請先點選「👆 選取模式」，並點擊畫布上的物件。"); if (action === 'delete') { selectedEl.remove(); selectedEl = null; } else if (action === 'scale') { let sc = parseFloat(selectedEl.getAttribute('data-sc') || 1); selectedEl.setAttribute('data-sc', sc * val); } else if (action === 'rotate') { let rot = parseFloat(selectedEl.getAttribute('data-rot') || 0); selectedEl.setAttribute('data-rot', rot + val); } if (selectedEl) applyTransform(selectedEl); syncToBackend(); }
-    function deleteAllCustomObjects() { if (confirm("確認刪除所有自訂標註？")) { customLayer.innerHTML = ''; selectedEl = null; syncToBackend(); } }
+    
+    // 修復：改用 removeChild 清除 SVG 節點
+    function deleteAllCustomObjects() { 
+      if (confirm("確認刪除所有自訂標註？")) { 
+        while (customLayer.firstChild) {
+          customLayer.removeChild(customLayer.firstChild);
+        }
+        selectedEl = null; 
+        syncToBackend(); 
+      } 
+    }
+    
     function changeColorSelected() { if (selectedEl && document.getElementById('draw-mode').value === 'select') { let color = document.getElementById('draw-color').value; let children = selectedEl.children; for (let i = 0; i < children.length; i++) { if (children[i].tagName === 'text') children[i].setAttribute('fill', color); else children[i].setAttribute('stroke', color); } syncToBackend(); } }
+
+    // 新增：套用選擇的字體到已選取的文字上
+    function changeFontSelected() {
+      if (selectedEl && document.getElementById('draw-mode').value === 'select') {
+        let font = document.getElementById('draw-font').value;
+        let children = selectedEl.children;
+        for (let i = 0; i < children.length; i++) {
+          if (children[i].tagName === 'text') children[i].setAttribute('font-family', font);
+        }
+        syncToBackend();
+      }
+    }
 
     function getSvgSourceForExport() {
       selectElement(null);
