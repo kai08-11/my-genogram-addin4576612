@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>家系圖工具</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 10px;
+      background-color: #f4f6f9;
+    }
+
+    .card {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      margin-bottom: 12px;
+    }
+
+    h3 {
+      margin-top: 0;
+      color: #2c3e50;
+      font-size: 16px;
+      border-bottom: 2px solid #eef2f5;
+      padding-bottom: 8px;
+    }
+
+    .person-row {
+      border: 1px solid #e1e8ed;
+      padding: 10px;
+      margin-bottom: 8px;
+      border-radius: 6px;
+      background: #fafbfc;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+    }
+
+    .checkbox-group {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 4px;
+      background: #f0f4f8;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .checkbox-group label {
+      cursor: pointer;
+      font-weight: bold;
+      color: #333;
+    }
+
+    .checkbox-group input {
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+    }
+
+    .field-group label {
+      font-weight: bold;
+      margin-bottom: 2px;
+      color: #555;
+    }
+
+    select, input[type="text"], input[type="number"] {
+      padding: 4px 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    .btn-add { background: #28a745; margin-bottom: 10px; }
+    .btn-clear { background: #dc3545; color: white; margin-left: 10px; margin-bottom: 10px; }
+    .btn-danger { background: #dc3545; padding: 4px 8px; font-size: 12px; margin-top: 5px; }
+
+    #canvas-container {
+      background: white;
+      padding: 0;
+      border-radius: 8px;
+      text-align: center;
+      overflow: hidden;
+      height: 700px;
+      border: 1px solid #ccc;
+      position: relative;
+    }
+
+    svg {
+      background: #fff;
+      display: block;
+      margin: 0 auto;
+      user-select: none;
+      width: 100%;
+      height: 100%;
+    }
+
+    .selected-el {
+      filter: drop-shadow(0px 0px 4px rgba(0, 123, 255, 0.8));
+      outline: none;
+    }
+    
+    .control-handle {
+      transition: r 0.1s;
+    }
+    .control-handle:hover {
+      r: 7;
+      fill: #eef5ff;
+    }
+
+    .draggable-node { cursor: move; }
+
+    #custom-modal {
+      display: none; 
+      position: fixed; 
+      top: 0; left: 0; 
+      width: 100%; height: 100%; 
+      background: rgba(0,0,0,0.5); 
+      z-index: 9999; 
+      justify-content: center; 
+      align-items: center;
+    }
+    
+    .modal-content {
+      background: white; 
+      padding: 25px; 
+      border-radius: 8px; 
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3); 
+      max-width: 400px; 
+      width: 85%; 
+      text-align: center;
+    }
+
+    textarea {
+      width: 100%;
+      height: 80px;
+      padding: 10px;
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+      resize: vertical;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="custom-modal">
+    <div class="modal-content">
+      <p id="modal-msg" style="font-size:16px; margin-bottom:10px; color:#333; font-weight:bold;"></p>
+      <textarea id="modal-input" style="display:none;"></textarea>
+      <div style="display:flex; justify-content:center; gap:15px;">
+        <button id="modal-btn-cancel" style="background:#6c757d; color:white; padding:8px 25px; font-size:14px;">取消</button>
+        <button id="modal-btn-confirm" style="background:#007bff; color:white; padding:8px 25px; font-size:14px;">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>1. 人員資料設定 (打勾表示啟用該屬性)</h3>
+    <button class="btn-add" onclick="addPerson()">+ 新增人員</button>
+    <button class="btn-clear" onclick="clearAllPeople()">清除所有人</button>
+    <div id="people-container"></div>
+  </div>
+
+  <div class="card">
+    <h3>2. 同居 / 同住圈選群組</h3>
+    <button class="btn-add" onclick="addCohabitGroup()">+ 新增同居圈選區</button>
+    <div id="cohabit-container"></div>
+  </div>
+
+  <div class="card" style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; background:#f8f9fa;">
+    <div style="display: flex; align-items: center; gap: 5px; background: white; padding: 5px 10px; border-radius: 4px; border: 1px solid #ccc;">
+      <label style="font-weight:bold;">檔案名稱：</label>
+      <input type="text" id="filename-input" value="家系圖" style="width: 150px; padding: 4px;">
+    </div>
+    <button onclick="downloadPNG()" style="font-size: 15px; font-weight: bold; padding: 8px 20px; background: #28a745;">🖼️ 下載 PNG 圖片</button>
+    <button onclick="downloadSVG()" style="font-size: 15px; font-weight: bold; padding: 8px 20px; background: #17a2b8;">🖼️ 下載 SVG 圖片</button>
+    
+    <button onclick="exportJSON()" style="font-size: 15px; font-weight: bold; padding: 8px 20px; background: #fd7e14;">📦 匯出設定 (JSON)</button>
+    <label style="font-size: 15px; font-weight: bold; padding: 8px 20px; background: #6c757d; color: white; border-radius: 4px; cursor: pointer; margin: 0;">
+      📂 匯入設定 (JSON)
+      <input type="file" id="import-json" accept=".json" style="display: none;" onchange="importJSON(event)">
+    </label>
+  </div>
+
+  <div class="card" style="background:#eef6fc;">
+    <h3>3. 畫布標註與繪圖工具 (提示：可拉框或按 Shift 多選，物件點選後可拉動控制點)</h3>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+      <div style="background:#fff; padding:5px 10px; border-radius:5px; border:1px solid #ccc;">
+        <label style="font-weight:bold; color:#000000;">🛠️ 模式：</label>
+        <select id="draw-mode" style="font-size:14px; padding:3px;">
+          <option value="select">👆 選取/移動/多選(框選/Shift)</option>
+          <option value="cohabit-draw">⭕ 畫同住圈 (手繪封閉實線)</option>
+          <option value="text">T 新增文字</option>
+          <option value="cross">❌ 新增獨立叉叉</option>
+          <option value="ellipse">⭕ 新增橢圓形</option>
+          <option value="arrow-single">➡️ 單向箭頭</option>
+          <option value="arrow-double">↔️ 雙向箭頭</option>
+          <option value="line">📏 直線</option>
+          <option value="freehand">✏️ 任意畫筆</option>
+        </select>
+      </div>
+      <div style="background:#fff; padding:5px 10px; border-radius:5px; border:1px solid #ccc;">
+        <label style="font-weight:bold; color:#000000;">🔤 字體：</label>
+        <select id="draw-font" style="font-size:14px; padding:3px;" onchange="applyStyleSelected()">
+          <option value="sans-serif">預設字體</option>
+          <option value="標楷體, BiauKai, DFKai-SB">標楷體</option>
+        </select>
+      </div>
+      <div style="background:#fff; padding:5px 10px; border-radius:5px; border:1px solid #ccc;">
+        <label style="font-weight:bold; color:#000000;">🎨 顏色：</label>
+        <input type="color" id="draw-color" value="#000000" oninput="applyStyleSelected()">
+      </div>
+      <div style="background:#fff; padding:5px 10px; border-radius:5px; border:1px solid #ccc;">
+        <label style="font-weight:bold; color:#000000;">📏 大小(字/圖)：</label>
+        <input type="number" id="draw-size" value="16" style="width:45px;" oninput="applyStyleSelected()">
+      </div>
+      <div style="background:#fff; padding:5px 10px; border-radius:5px; border:1px solid #ccc;">
+        <label style="font-weight:bold; color:#000000;">🖊️ 線條粗細：</label>
+        <input type="number" id="draw-thickness" value="2" style="width:45px;" step="1" oninput="applyStyleSelected()">
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding-top:10px; border-top:1px dashed #b8daff; width:100%;">
+      <label style="font-weight:bold; color:#0056b3;">對「選取中的群組/物件」：</label>
+      <button onclick="transformSelected('rotate', 15)" style="background:#ffc107; color:black;">↻ 順時針</button>
+      <button onclick="transformSelected('rotate', -15)" style="background:#ffc107; color:black;">↺ 逆時針</button>
+      <button onclick="groupSelected()" style="background:#17a2b8;">🔗 組合群組</button>
+      <button onclick="ungroupSelected()" style="background:#6c757d;">🔗 解散群組</button>
+      <button onclick="transformSelected('delete')" class="btn-danger" style="margin-top:0; padding:6px 12px; font-size:13px;">🗑️ 刪除</button>
+      <button onclick="deleteAllCustomObjects()" style="margin-left:auto; background:#dc3545; font-weight:bold;">💥 清空標註</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>4. 家系圖預覽區 (雙擊文字可重新編輯內容)</h3>
+    <div id="canvas-container">
+      <svg id="genogram-svg">
+        <defs>
+          <pattern id="gridPattern" width="40" height="40" patternUnits="userSpaceOnUse">
+            <rect width="40" height="40" fill="none" />
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e0e0e0" stroke-width="1" stroke-dasharray="2,2"/>
+          </pattern>
+        </defs>
+        <rect id="grid-pattern-rect" x="-50000" y="-50000" width="100000" height="100000" fill="url(#gridPattern)" />
+        <g id="auto-layer"></g>
+        <g id="custom-layer"></g>
+        <!-- 選取框圖層 -->
+        <g id="selection-box-layer"></g>
+        <!-- 控制點圖層放在最上層 -->
+        <g id="controls-layer"></g>
+      </svg>
+    </div>
+  </div>
+
+  <script>
+    function customConfirm(msg, callback) {
+      const modal = document.getElementById('custom-modal');
+      const msgEl = document.getElementById('modal-msg');
+      const inputEl = document.getElementById('modal-input');
+      const cancelBtn = document.getElementById('modal-btn-cancel');
+      const confirmBtn = document.getElementById('modal-btn-confirm');
+
+      msgEl.innerText = msg;
+      inputEl.style.display = 'none';
+      cancelBtn.style.display = 'inline-block';
+      modal.style.display = 'flex';
+
+      confirmBtn.onclick = function() { modal.style.display = 'none'; callback(true); };
+      cancelBtn.onclick = function() { modal.style.display = 'none'; callback(false); };
+    }
+
+    function customPrompt(msg, callback, defaultValue = "") {
+      const modal = document.getElementById('custom-modal');
+      const msgEl = document.getElementById('modal-msg');
+      const inputEl = document.getElementById('modal-input');
+      const cancelBtn = document.getElementById('modal-btn-cancel');
+      const confirmBtn = document.getElementById('modal-btn-confirm');
+
+      msgEl.innerText = msg;
+      inputEl.style.display = 'block';
+      inputEl.value = defaultValue;
+      cancelBtn.style.display = 'inline-block';
+      modal.style.display = 'flex';
+      inputEl.focus();
+
+      confirmBtn.onclick = function() { modal.style.display = 'none'; callback(inputEl.value); };
+      cancelBtn.onclick = function() { modal.style.display = 'none'; callback(null); };
+    }
+
+    function customAlert(msg) {
+      const modal = document.getElementById('custom-modal');
+      const msgEl = document.getElementById('modal-msg');
+      const inputEl = document.getElementById('modal-input');
+      const cancelBtn = document.getElementById('modal-btn-cancel');
+      const confirmBtn = document.getElementById('modal-btn-confirm');
+
+      msgEl.innerText = msg;
+      inputEl.style.display = 'none';
+      cancelBtn.style.display = 'none'; 
+      modal.style.display = 'flex';
+
+      confirmBtn.onclick = function() { modal.style.display = 'none'; cancelBtn.style.display = 'inline-block'; };
+    }
+
+    const svg = document.getElementById('genogram-svg');
+    const autoLayer = document.getElementById('auto-layer');
+    const customLayer = document.getElementById('custom-layer');
+    const selectionBoxLayer = document.getElementById('selection-box-layer');
+    const controlsLayer = document.getElementById('controls-layer');
+
+    function setSVGHtmlSafe(el, htmlString) {
+      try { el.innerHTML = htmlString; } 
+      catch (e) {
+        while (el.firstChild) el.removeChild(el.firstChild);
+        let tempDiv = document.createElement('div');
+        tempDiv.innerHTML = '<svg>' + htmlString + '</svg>';
+        Array.from(tempDiv.firstChild.childNodes).forEach(node => el.appendChild(node));
+      }
+    }
+
+    const defaultData = {
+      people: [
+        { id: "A", gender: "M", age: "", disability: false, status: false, isClient: true, hasSpouse: true, spouse: "B", hasChildren: false, children: [], hasTwin: false, twinSiblings: [] },
+        { id: "B", gender: "F", age: "", disability: false, status: false, isClient: false, hasSpouse: true, spouse: "A", hasChildren: false, children: [], hasTwin: false, twinSiblings: [] }
+      ],
+      cohabitGroups: []
+    };
+
+    let people = JSON.parse(JSON.stringify(defaultData.people));
+    let cohabitGroups = [];
+    let nodeOffsets = {};
+
+    let isDrawing = false; 
+    let isDraggingNode = false; 
+    let draggedNodeId = null;
+    let startPt = null; 
+    let currentDrawEl = null; 
+    let selectedEls = new Set();
+    
+    // 框選變數
+    let isBoxSelecting = false;
+    let boxSelectStartPt = null;
+    let selectionBoxRect = null;
+
+    // 控制點拖拉變數
+    let activeHandleAction = null;
+    let activeHandleTarget = null;
+    let handleStartPt = null;
+
+    // 畫布平移縮放變數
+    window.currentViewBox = null;
+    let isCanvasPanning = false;
+    let canvasPanStart = null;
+    let viewBoxStart = null;
+
+    function getNextID() {
+      const used = people.map(p => p.id);
+      for (let i = 0; i < 26; i++) {
+        let char = String.fromCharCode(65 + i);
+        if (!used.includes(char)) return char;
+      }
+      return 'P' + (people.length + 1);
+    }
+
+    function renderForms() {
+      const container = document.getElementById('people-container');
+      container.innerHTML = '';
+      let allClaimedChildren = [];
+      people.forEach(p => { if (p.children) allClaimedChildren.push(...p.children); });
+
+      people.forEach((p, index) => {
+        const row = document.createElement('div'); row.className = 'person-row';
+        let spouseOpts = `<option value="">請選擇</option>` + people.filter(x => x.id !== p.id && !(p.children && p.children.includes(x.id))).map(x => `<option value="${x.id}" ${p.spouse === x.id ? 'selected' : ''}>${x.id}</option>`).join('');
+        
+        let childOptsHTML = '';
+        if (p.hasChildren) {
+          let spouseObj = people.find(s => s.id === p.spouse);
+          childOptsHTML = people.filter(x => x.id !== p.id && x.id !== p.spouse).map(x => {
+            let claimedByMe = p.children && p.children.includes(x.id);
+            let claimedBySpouse = spouseObj && spouseObj.children && spouseObj.children.includes(x.id);
+            let claimedByOthers = allClaimedChildren.includes(x.id) && !claimedByMe && !claimedBySpouse;
+            if (claimedByOthers) return ''; 
+            let isChecked = claimedByMe || claimedBySpouse;
+            return `<label style="font-weight:normal; font-size:12px; margin-right:8px;"><input type="checkbox" onchange="toggleChild('${p.id}', '${x.id}')" ${isChecked ? 'checked' : ''}> ${x.id}</label>`;
+          }).join('');
+        }
+
+        let twinOptsHTML = '';
+        if (p.hasTwin) {
+          twinOptsHTML = people.filter(x => x.id !== p.id && x.hasTwin).map(x => `
+            <label style="font-weight:normal; font-size:12px; margin-right:8px; color:#c0392b;"><input type="checkbox" onchange="toggleTwin('${p.id}', '${x.id}')" ${p.twinSiblings && p.twinSiblings.includes(x.id) ? 'checked' : ''}> 連結 ${x.id}</label>
+          `).join('');
+        }
+
+        row.innerHTML = `
+          <div class="field-group"><strong style="font-size:16px; color:#007bff;">ID: ${p.id}</strong></div>
+          <label class="checkbox-group"><input type="checkbox" onchange="updatePerson('${p.id}', 'isClient', this.checked)" ${p.isClient ? 'checked' : ''}> 案主</label>
+          <div class="field-group" style="flex-direction:row; gap:4px; align-items:center;">
+            <label style="margin:0;">性別:</label>
+            <select onchange="updatePerson('${p.id}', 'gender', this.value)"><option value="M" ${p.gender === 'M' ? 'selected' : ''}>男</option><option value="F" ${p.gender === 'F' ? 'selected' : ''}>女</option><option value="U" ${p.gender === 'U' ? 'selected' : ''}>未知</option></select>
+          </div>
+          <div class="field-group" style="flex-direction:row; gap:4px; align-items:center;">
+            <label style="margin:0;">年齡:</label>
+            <input type="number" style="width:50px;" value="${p.age}" onchange="updatePerson('${p.id}', 'age', this.value)" placeholder="無">
+          </div>
+          <label class="checkbox-group" style="background:#ffeeba;"><input type="checkbox" onchange="updatePerson('${p.id}', 'disability', this.checked)" ${p.disability ? 'checked' : ''}> 身障</label>
+          <label class="checkbox-group" style="background:#f5c6cb; color:#721c24;"><input type="checkbox" onchange="updatePerson('${p.id}', 'status', this.checked)" ${p.status ? 'checked' : ''}> 歿</label>
+
+          <div style="display:flex; flex-wrap:wrap; gap:10px; border-left:2px solid #ccc; padding-left:10px;">
+            <div class="field-group">
+              <label class="checkbox-group" style="background:#d4edda;"><input type="checkbox" onchange="updatePerson('${p.id}', 'hasSpouse', this.checked)" ${p.hasSpouse ? 'checked' : ''}> 有配偶</label>
+              ${p.hasSpouse ? `<select style="margin-top:4px;" onchange="updatePerson('${p.id}', 'spouse', this.value)">${spouseOpts}</select>` : ''}
+            </div>
+            <div class="field-group">
+              <label class="checkbox-group" style="background:#d1ecf1;"><input type="checkbox" onchange="updatePerson('${p.id}', 'hasChildren', this.checked)" ${p.hasChildren ? 'checked' : ''}> 有子女</label>
+              ${p.hasChildren ? `<div style="margin-top:4px; padding:4px; background:#e2f3f5; border-radius:4px;">${childOptsHTML || '無可用子女'}</div>` : ''}
+            </div>
+            <div class="field-group">
+              <label class="checkbox-group" style="background:#e8daef;"><input type="checkbox" onchange="updatePerson('${p.id}', 'hasTwin', this.checked)" ${p.hasTwin ? 'checked' : ''}> 雙胞胎</label>
+              ${p.hasTwin ? `<div style="margin-top:4px; padding:4px; background:#f4ebf9; border-radius:4px;">${twinOptsHTML || '無可用對象'}</div>` : ''}
+            </div>
+          </div>
+          <div class="field-group" style="flex-direction:row; gap:5px; align-items:center; margin-left:auto;">
+            <button class="btn-danger" style="margin-top:0;" onclick="removePerson('${p.id}')">刪除</button>
+            <button onclick="movePersonUp(${index})" style="background:#CCDDFF; color:#333; border:none; padding:4px 8px; border-radius:4px;">⬆️</button>
+            <button onclick="movePersonDown(${index})" style="background:#CCDDFF; color:#333; border:none; padding:4px 8px; border-radius:4px;">⬇️</button>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+      renderCohabitForms(); renderGenogram();
+    }
+
+    function updatePerson(id, field, val) {
+      const p = people.find(x => x.id === id);
+      if (p) {
+        p[field] = val;
+        if (field === 'hasSpouse' && !val) {
+          if (p.spouse) { let sp = people.find(x => x.id === p.spouse); if (sp && sp.spouse === p.id) sp.spouse = ''; }
+          p.spouse = '';
+        }
+        if (field === 'spouse' && val) {
+          const spouseObj = people.find(x => x.id === val);
+          if (spouseObj) { spouseObj.spouse = id; spouseObj.hasSpouse = true; }
+        }
+        if (field === 'hasChildren' && !val) p.children = [];
+        if (field === 'hasTwin' && !val) p.twinSiblings = [];
+      }
+      renderForms();
+    }
+
+    function toggleChild(parentId, childId) {
+      const p = people.find(x => x.id === parentId);
+      const spouse = people.find(x => x.id === p.spouse);
+      let inParent = p.children && p.children.includes(childId);
+      let inSpouse = spouse && spouse.children && spouse.children.includes(childId);
+
+      if (inParent || inSpouse) {
+        if (p.children) p.children = p.children.filter(c => c !== childId);
+        if (spouse && spouse.children) spouse.children = spouse.children.filter(c => c !== childId);
+      } else {
+        if (!p.children) p.children = [];
+        p.children.push(childId);
+      }
+      renderForms();
+    }
+
+    function toggleTwin(id1, id2) {
+      const p1 = people.find(x => x.id === id1); const p2 = people.find(x => x.id === id2);
+      if (!p1.twinSiblings) p1.twinSiblings = []; if (!p2.twinSiblings) p2.twinSiblings = [];
+      if (p1.twinSiblings.includes(id2)) {
+        p1.twinSiblings = p1.twinSiblings.filter(x => x !== id2);
+        p2.twinSiblings = p2.twinSiblings.filter(x => x !== id1);
+      } else {
+        p1.twinSiblings.push(id2); p2.twinSiblings.push(id1);
+      }
+      renderForms();
+    }
+
+    function renderCohabitForms() {
+      const container = document.getElementById('cohabit-container'); container.innerHTML = '';
+      cohabitGroups.forEach((group, gIdx) => {
+        const div = document.createElement('div'); div.style.cssText = 'display:flex; align-items:center; gap:10px; margin-bottom:10px; background:#fafbfc; padding:10px; border:1px solid #e1e8ed; border-radius:6px;';
+        let checkboxes = people.map(p => `<label style="font-size:13px; margin-right:8px; cursor:pointer;"><input type="checkbox" onchange="toggleCohabitMember(${gIdx}, '${p.id}')" ${group.includes(p.id) ? 'checked' : ''}> ${p.id}</label>`).join('');
+        div.innerHTML = `<strong style="font-size:14px; color:#2c3e50;">同住圈 ${gIdx + 1}：</strong><div style="flex-grow:1;">${checkboxes}</div><button class="btn-danger" style="margin-top:0;" onclick="removeCohabitGroup(${gIdx})">刪除</button>`;
+        container.appendChild(div);
+      });
+    }
+
+    function addPerson() { people.push({ id: getNextID(), gender: 'M', age: '', disability: false, status: false, isClient: false, hasSpouse: false, spouse: '', hasChildren: false, children: [], hasTwin: false, twinSiblings: [] }); renderForms(); }
+    function removePerson(id) { people = people.filter(p => p.id !== id); people.forEach(p => { if (p.spouse === id) { p.spouse = ''; p.hasSpouse = false; } if (p.children) p.children = p.children.filter(c => c !== id); if (p.twinSiblings) p.twinSiblings = p.twinSiblings.filter(c => c !== id); }); cohabitGroups = cohabitGroups.map(g => g.filter(x => x !== id)); delete nodeOffsets[id]; renderForms(); }
+    function movePersonUp(idx) { if (idx > 0) { let temp = people[idx]; people[idx] = people[idx - 1]; people[idx - 1] = temp; renderForms(); } }
+    function movePersonDown(idx) { if (idx < people.length - 1) { let temp = people[idx]; people[idx] = people[idx + 1]; people[idx + 1] = temp; renderForms(); } }
+    function addCohabitGroup() { cohabitGroups.push([]); renderCohabitForms(); }
+    function removeCohabitGroup(gIdx) { cohabitGroups.splice(gIdx, 1); renderCohabitForms(); renderGenogram(); }
+    function toggleCohabitMember(gIdx, personId) { if (cohabitGroups[gIdx].includes(personId)) { cohabitGroups[gIdx] = cohabitGroups[gIdx].filter(x => x !== personId); } else { cohabitGroups[gIdx].push(personId); } renderGenogram(); }
+
+    function clearAllPeople() {
+      customConfirm("確定清除所有人與畫布所有內容？", function(res) {
+        if (res) {
+          people = []; cohabitGroups = []; nodeOffsets = {};
+          window.currentViewBox = null;
+          while (customLayer.firstChild) customLayer.removeChild(customLayer.firstChild);
+          renderForms();
+        }
+      });
+    }
+
+    function deleteAllCustomObjects() {
+      customConfirm("確認刪除所有自訂標註？", function(res) {
+        if (res) {
+          while (customLayer.firstChild) customLayer.removeChild(customLayer.firstChild);
+          selectedEls.clear(); renderControls();
+        }
+      });
+    }
+
+    function getConvexHull(points) {
+      if (points.length <= 2) return points; points.sort((a, b) => a.x !== b.x ? a.x - b.x : a.y - b.y);
+      const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+      const lower = []; for (let i = 0; i < points.length; i++) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], points[i]) <= 0) lower.pop(); lower.push(points[i]); }
+      const upper = []; for (let i = points.length - 1; i >= 0; i--) { while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], points[i]) <= 0) upper.pop(); upper.push(points[i]); }
+      upper.pop(); lower.pop(); return lower.concat(upper);
+    }
+
+    function calculateBaseCoordinates() {
+      let coords = {}; let drawn = new Set(); let isChild = {};
+      people.forEach(p => { (p.children || []).forEach(cId => { isChild[cId] = true; }); });
+      let topRoots = people.filter(p => !isChild[p.id]);
+      function layoutCouple(p1Id, p2Id, midX, y) {
+        if (drawn.has(p1Id)) return;
+        let p1Obj = people.find(x => x.id === p1Id); let p2Obj = p2Id ? people.find(x => x.id === p2Id) : null;
+        let leftId = p1Id, rightId = p2Id;
+        if (p2Obj) {
+          if (p1Obj.gender === 'F' && p2Obj.gender === 'M') { leftId = p2Id; rightId = p1Id; }
+          else if (p1Obj.gender === 'M' && p2Obj.gender === 'F') { leftId = p1Id; rightId = p2Id; }
+          coords[leftId] = { x: midX - 70, y: y }; coords[rightId] = { x: midX + 70, y: y };
+          drawn.add(leftId); drawn.add(rightId);
+        } else { coords[p1Id] = { x: midX, y: y }; drawn.add(p1Id); }
+        let childrenSet = new Set(p1Obj ? (p1Obj.children || []) : []);
+        if (p2Obj) { (p2Obj.children || []).forEach(cId => childrenSet.add(cId)); }
+        let rawChildren = Array.from(childrenSet); rawChildren.sort((a, b) => people.findIndex(x => x.id === a) - people.findIndex(x => x.id === b));
+        let children = []; let visitedChild = new Set();
+        rawChildren.forEach(cId => {
+          if (visitedChild.has(cId)) return; let childObj = people.find(x => x.id === cId);
+          if (childObj && childObj.hasTwin && childObj.twinSiblings) {
+            let siblingsInThisFamily = childObj.twinSiblings.filter(tid => rawChildren.includes(tid));
+            siblingsInThisFamily.sort((a, b) => people.findIndex(x => x.id === a) - people.findIndex(x => x.id === b));
+            children.push(cId); visitedChild.add(cId);
+            siblingsInThisFamily.forEach(tid => { if (!visitedChild.has(tid)) { children.push(tid); visitedChild.add(tid); } });
+          } else { children.push(cId); visitedChild.add(cId); }
+        });
+        if (children.length > 0) {
+          let widths = children.map(cId => { let childObj = people.find(x => x.id === cId); return (childObj && childObj.spouse) ? 280 : 180; });
+          let totalW = widths.reduce((a, b) => a + b, 0); let startX = midX - totalW / 2; let currentX = startX;
+          children.forEach((cId, i) => {
+            let cx = currentX + widths[i] / 2; currentX += widths[i];
+            let childObj = people.find(x => x.id === cId);
+            if (childObj) { if (childObj.spouse && !drawn.has(childObj.spouse)) layoutCouple(cId, childObj.spouse, cx, y + 170); else layoutCouple(cId, null, cx, y + 170); }
+          });
+        }
+      }
+      let currentMidX = 600; topRoots.forEach(p => { if (!drawn.has(p.id)) { layoutCouple(p.id, p.spouse, currentMidX, 100); currentMidX += 450; } });
+      let fallbackY = 100; let fallbackX = 100; people.forEach(p => { if (!drawn.has(p.id)) { coords[p.id] = { x: fallbackX, y: fallbackY }; drawn.add(p.id); fallbackX += 160; } });
+      return coords;
+    }
+
+    function getFinalCoordinates() {
+      let baseCoords = calculateBaseCoordinates(); let finalCoords = {};
+      Object.keys(baseCoords).forEach(id => { let offset = nodeOffsets[id] || { x: 0, y: 0 }; finalCoords[id] = { x: baseCoords[id].x + offset.x, y: baseCoords[id].y + offset.y }; });
+      return finalCoords;
+    }
+
+    function renderGenogram() {
+      while (autoLayer.firstChild) autoLayer.removeChild(autoLayer.firstChild);
+      let coords = getFinalCoordinates();
+      let minX = Infinity, maxX = -Infinity, minY = 0, maxY = 600;
+      Object.values(coords).forEach(c => { if (c.x < minX) minX = c.x; if (c.x > maxX) maxX = c.x; if (c.y > maxY) maxY = c.y; });
+      if (minX === Infinity) minX = 0; if (maxX === -Infinity) maxX = 1200;
+      minX = Math.min(0, minX - 150); maxX = Math.max(1200, maxX + 150); maxY = Math.max(600, maxY + 150);
+      
+      if (!window.currentViewBox) {
+        window.currentViewBox = { x: minX, y: minY, w: Math.max(maxX - minX, 1200), h: Math.max(maxY - minY, 700) };
+      }
+      svg.setAttribute("viewBox", `${window.currentViewBox.x} ${window.currentViewBox.y} ${window.currentViewBox.w} ${window.currentViewBox.h}`);
+      
+      const gCohabit = document.createElementNS("http://www.w3.org/2000/svg", "g"); 
+      const gLines = document.createElementNS("http://www.w3.org/2000/svg", "g"); 
+      const gNodes = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      autoLayer.appendChild(gCohabit); autoLayer.appendChild(gLines); autoLayer.appendChild(gNodes);
+
+      let drawnMarriages = new Set();
+      people.forEach(p => {
+        if (p.spouse && coords[p.spouse] && !drawnMarriages.has([p.id, p.spouse].sort().join('-'))) {
+          drawnMarriages.add([p.id, p.spouse].sort().join('-'));
+          let p1 = coords[p.id], p2 = coords[p.spouse];
+          let line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", p1.x); line.setAttribute("y1", p1.y); line.setAttribute("x2", p2.x); line.setAttribute("y2", p2.y);
+          line.setAttribute("stroke", "black"); line.setAttribute("stroke-width", "2"); gLines.appendChild(line);
+
+          let children = p.children || []; const spouseObj = people.find(x => x.id === p.spouse);
+          if (spouseObj && spouseObj.children) children = [...new Set([...children, ...spouseObj.children])];
+          if (children.length > 0) {
+            let midX = (p1.x + p2.x) / 2; let busY = Math.min(p1.y, p2.y) + 70;
+            let vLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            vLine.setAttribute("x1", midX); vLine.setAttribute("y1", (p1.y + p2.y) / 2); vLine.setAttribute("x2", midX); vLine.setAttribute("y2", busY); vLine.setAttribute("stroke", "black"); vLine.setAttribute("stroke-width", "2"); gLines.appendChild(vLine);
+            let busXs = [midX]; let drawnChildLines = new Set();
+            children.forEach(cId => {
+              let childObj = people.find(x => x.id === cId); let c = coords[cId]; if (!c) return;
+              if (childObj.hasTwin && childObj.twinSiblings) {
+                let actualTwins = childObj.twinSiblings.filter(tid => children.includes(tid) && coords[tid]);
+                if (actualTwins.length > 0) {
+                  let allTwinIds = [cId, ...actualTwins]; let xs = allTwinIds.map(id => coords[id].x); busXs.push(xs.reduce((a, b) => a + b, 0) / xs.length);
+                } else { busXs.push(c.x); }
+              } else { busXs.push(c.x); }
+            });
+            let hBus = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            hBus.setAttribute("x1", Math.min(...busXs)); hBus.setAttribute("y1", busY); hBus.setAttribute("x2", Math.max(...busXs)); hBus.setAttribute("y2", busY); hBus.setAttribute("stroke", "black"); hBus.setAttribute("stroke-width", "2"); gLines.appendChild(hBus);
+
+            children.forEach(cId => {
+              if (drawnChildLines.has(cId)) return; let childObj = people.find(x => x.id === cId); let c = coords[cId]; if (!c) return;
+              if (childObj.hasTwin && childObj.twinSiblings) {
+                let actualTwins = childObj.twinSiblings.filter(tid => children.includes(tid) && coords[tid]);
+                if (actualTwins.length > 0) {
+                  let allTwinIds = [cId, ...actualTwins]; let xs = allTwinIds.map(id => coords[id].x); let twinMidX = xs.reduce((a, b) => a + b, 0) / xs.length;
+                  allTwinIds.forEach(id => {
+                    let tc = coords[id]; let cLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    cLine.setAttribute("x1", twinMidX); cLine.setAttribute("y1", busY); cLine.setAttribute("x2", tc.x); cLine.setAttribute("y2", tc.y - 26); cLine.setAttribute("stroke", "black"); cLine.setAttribute("stroke-width", "2"); gLines.appendChild(cLine); drawnChildLines.add(id);
+                  });
+                  return;
+                }
+              }
+              let cLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+              cLine.setAttribute("x1", c.x); cLine.setAttribute("y1", busY); cLine.setAttribute("x2", c.x); cLine.setAttribute("y2", c.y - 26); cLine.setAttribute("stroke", "black"); cLine.setAttribute("stroke-width", "2"); gLines.appendChild(cLine); drawnChildLines.add(cId);
+            });
+          }
+        }
+      });
+
+      people.forEach(p => {
+        let pos = coords[p.id]; if (!pos) return;
+        let g = document.createElementNS("http://www.w3.org/2000/svg", "g"); g.setAttribute("class", "draggable-node"); g.setAttribute("data-person-id", p.id);
+        let r = 26; let shapeHalfColor = "#666666"; let baseFillColor = p.isClient ? "#cccccc" : "white";
+
+        if (p.gender === 'M') {
+          let rect = document.createElementNS("http://www.w3.org/2000/svg", "rect"); rect.setAttribute("x", pos.x - r); rect.setAttribute("y", pos.y - r); rect.setAttribute("width", r * 2); rect.setAttribute("height", r * 2); rect.setAttribute("stroke", "black"); rect.setAttribute("stroke-width", "2"); rect.setAttribute("fill", baseFillColor); g.appendChild(rect);
+          if (p.disability) { let half = document.createElementNS("http://www.w3.org/2000/svg", "rect"); half.setAttribute("x", pos.x); half.setAttribute("y", pos.y - r); half.setAttribute("width", r); half.setAttribute("height", r * 2); half.setAttribute("fill", shapeHalfColor); half.setAttribute("stroke", "black"); half.setAttribute("stroke-width", "1"); g.appendChild(half); }
+        } else if (p.gender === 'F') {
+          let circle = document.createElementNS("http://www.w3.org/2000/svg", "circle"); circle.setAttribute("cx", pos.x); circle.setAttribute("cy", pos.y); circle.setAttribute("r", r); circle.setAttribute("stroke", "black"); circle.setAttribute("stroke-width", "2"); circle.setAttribute("fill", baseFillColor); g.appendChild(circle);
+          if (p.disability) { let path = document.createElementNS("http://www.w3.org/2000/svg", "path"); path.setAttribute("d", `M ${pos.x} ${pos.y - r} A ${r} ${r} 0 0 1 ${pos.x} ${pos.y + r} Z`); path.setAttribute("fill", shapeHalfColor); path.setAttribute("stroke", "black"); path.setAttribute("stroke-width", "1"); g.appendChild(path); }
+        } else {
+          let poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon"); poly.setAttribute("points", `${pos.x},${pos.y - r} ${pos.x - r},${pos.y + r} ${pos.x + r},${pos.y + r}`); poly.setAttribute("stroke", "black"); poly.setAttribute("stroke-width", "2"); poly.setAttribute("fill", baseFillColor); g.appendChild(poly);
+          if (p.disability) { let halfPoly = document.createElementNS("http://www.w3.org/2000/svg", "polygon"); halfPoly.setAttribute("points", `${pos.x},${pos.y - r} ${pos.x},${pos.y + r} ${pos.x + r},${pos.y + r}`); halfPoly.setAttribute("fill", shapeHalfColor); g.appendChild(halfPoly); }
+        }
+
+        if (p.status) {
+          let l1 = document.createElementNS("http://www.w3.org/2000/svg", "line"); let l2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          l1.setAttribute("stroke", "black"); l1.setAttribute("stroke-width", "2"); l2.setAttribute("stroke", "black"); l2.setAttribute("stroke-width", "2");
+          if (p.gender === 'M') { l1.setAttribute("x1", pos.x - r); l1.setAttribute("y1", pos.y - r); l1.setAttribute("x2", pos.x + r); l1.setAttribute("y2", pos.y + r); l2.setAttribute("x1", pos.x + r); l2.setAttribute("y1", pos.y - r); l2.setAttribute("x2", pos.x - r); l2.setAttribute("y2", pos.y + r); } 
+          else if (p.gender === 'F') { let d = r * 0.7071; l1.setAttribute("x1", pos.x - d); l1.setAttribute("y1", pos.y - d); l1.setAttribute("x2", pos.x + d); l1.setAttribute("y2", pos.y + d); l2.setAttribute("x1", pos.x + d); l2.setAttribute("y1", pos.y - d); l2.setAttribute("x2", pos.x - d); l2.setAttribute("y2", pos.y + d); } 
+          else { l1.setAttribute("x1", pos.x - r); l1.setAttribute("y1", pos.y + r); l1.setAttribute("x2", pos.x + r/2); l1.setAttribute("y2", pos.y); l2.setAttribute("x1", pos.x + r); l2.setAttribute("y1", pos.y + r); l2.setAttribute("x2", pos.x - r/2); l2.setAttribute("y2", pos.y); }
+          g.appendChild(l1); g.appendChild(l2);
+        }
+        
+        if (p.age) { let text = document.createElementNS("http://www.w3.org/2000/svg", "text"); text.setAttribute("x", pos.x); text.setAttribute("y", pos.y + 13); text.setAttribute("text-anchor", "middle"); text.setAttribute("font-size", "32"); text.setAttribute("font-weight", "bold"); text.setAttribute("fill", "black"); text.textContent = p.age; g.appendChild(text); }
+        let label = document.createElementNS("http://www.w3.org/2000/svg", "text"); label.setAttribute("x", pos.x + r + 5); label.setAttribute("y", pos.y - r + 10); label.setAttribute("text-anchor", "start"); label.setAttribute("font-size", "13"); label.setAttribute("font-weight", "bold"); label.setAttribute("fill", "#007bff"); label.setAttribute("class", "person-id-label"); label.textContent = p.id; g.appendChild(label);
+        gNodes.appendChild(g);
+      });
+
+      cohabitGroups.forEach(group => {
+        let validPts = group.map(id => coords[id]).filter(c => c !== undefined); if (validPts.length === 0) return;
+        let bufferRadius = 40; let expandedPoints = [];
+        validPts.forEach(p => { for (let i = 0; i < 16; i++) { let angle = (Math.PI * 2 * i) / 16; expandedPoints.push({ x: p.x + bufferRadius * Math.cos(angle), y: p.y + bufferRadius * Math.sin(angle) }); } });
+        let hull = getConvexHull(expandedPoints);
+        if (hull.length > 0) {
+          let pathData = "M " + hull.map(pt => `${pt.x},${pt.y}`).join(" L ") + " Z";
+          let path = document.createElementNS("http://www.w3.org/2000/svg", "path"); path.setAttribute("d", pathData); path.setAttribute("stroke", "black"); path.setAttribute("stroke-width", "2"); path.setAttribute("fill", "none"); path.setAttribute("stroke-linejoin", "round"); gCohabit.appendChild(path);
+        }
+      });
+    }
+
+    function getMousePos(evt) { var CTM = svg.getScreenCTM(); return { x: (evt.clientX - CTM.e) / CTM.a, y: (evt.clientY - CTM.f) / CTM.d }; }
+    
+    function generateId() { return 'custom-' + Date.now() + '-' + Math.floor(Math.random()*1000); }
+
+    // 擴充屬性：同時包含 size(整體大小) 與 thickness(線條粗細)
+    function createCustomElement(type, stateObj, color, size, thickness, font) {
+      let g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute('id', generateId());
+      g.classList.add('custom-element');
+      g.setAttribute('data-type', type);
+      g.setAttribute('data-color', color);
+      g.setAttribute('data-size', size);
+      g.setAttribute('data-thickness', thickness);
+      if(font) g.setAttribute('data-font', font);
+      g.setAttribute('data-state', JSON.stringify(stateObj));
+      g.setAttribute('data-tx', 0); g.setAttribute('data-ty', 0); g.setAttribute('data-rot', 0);
+      g.style.cursor = 'grab';
+      return g;
+    }
+
+    // 演算法：完美平滑封閉曲線 (Catmull-Rom 向內微縮收束)
+    function buildSmoothClosedPath(pts) {
+      if (!pts || pts.length < 3) {
+        return pts ? pts.map((p, i) => (i===0?'M':'L') + ` ${p[0]} ${p[1]}`).join(' ') + ' Z' : '';
+      }
+      // 1. 取樣減少手震抖動點
+      let sampled = [pts[0]];
+      for (let i = 1; i < pts.length; i++) {
+        let last = sampled[sampled.length - 1];
+        let dist = Math.hypot(pts[i][0] - last[0], pts[i][1] - last[1]);
+        // 【設定 1：抗手震距離】(數字越大越平滑，預設 10，建議 15~20)
+        if (dist > 20) sampled.push(pts[i]); 
+      }
+      if (sampled.length < 3) sampled = pts;
+
+      // 2. 計算幾何形心 (Centroid)
+      let cx = 0, cy = 0;
+      sampled.forEach(p => { cx += p[0]; cy += p[1]; });
+      cx /= sampled.length; cy /= sampled.length;
+
+      // 3. 將點稍微向形心內縮 (收邊完美定型)
+      // 【設定 2：縮小比例】(1.0 是不縮小，0.90 是縮小 10%。數字越小縮越多)
+      let shrinkFactor = 0.97; 
+      sampled = sampled.map(p => [
+         cx + (p[0] - cx) * shrinkFactor,
+         cy + (p[1] - cy) * shrinkFactor
+      ]);
+
+      // 4. 將 Catmull-Rom 樣條轉換為 SVG Cubic Bezier Path
+      let N = sampled.length;
+      let pathData = `M ${sampled[0][0].toFixed(1)} ${sampled[0][1].toFixed(1)}`;
+
+      for (let i = 0; i < N; i++) {
+        let p0 = sampled[(i - 1 + N) % N];
+        let p1 = sampled[i];
+        let p2 = sampled[(i + 1) % N];
+        let p3 = sampled[(i + 2) % N];
+
+        // 【設定 3：曲線圓滑度/張力】(1/6 是一般，1/4 或 1/3 彎曲弧度更大更圓滑)
+        let tension = 1/6; 
+        let cp1x = p1[0] + (p2[0] - p0[0]) * tension;
+        let cp1y = p1[1] + (p2[1] - p0[1]) * tension;
+        let cp2x = p2[0] - (p3[0] - p1[0]) * tension;
+        let cp2y = p2[1] - (p3[1] - p1[1]) * tension;
+
+        pathData += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+      }
+      pathData += ' Z'; // 完美閉合
+      return pathData;
+    }
+
+    // 渲染圖形 (分離大小與粗細)
+    function renderShape(g) {
+      const type = g.getAttribute('data-type');
+      if (type === 'group') return; 
+      const color = g.getAttribute('data-color');
+      const size = parseFloat(g.getAttribute('data-size')) || 16;
+      // 讀取粗細，若無則預設為2 (相容舊資料)
+      const thickness = parseFloat(g.getAttribute('data-thickness')) || 2; 
+      const font = g.getAttribute('data-font') || 'sans-serif';
+      const state = JSON.parse(g.getAttribute('data-state'));
+      
+      g.innerHTML = ''; // 清除並重建
+
+      if (type === 'line' || type === 'arrow-single' || type === 'arrow-double') {
+        let dx = state.x2 - state.x1; let dy = state.y2 - state.y1;
+        let len = Math.sqrt(dx*dx + dy*dy);
+        
+        let strokeSize = Math.max(1, thickness);
+        // 箭頭大小由「大小(size)」控制，不受線段粗細影響
+        let arrowHeadSize = Math.max(10, size); 
+        let arrowOffset = arrowHeadSize * 0.8; 
+
+        if (len < arrowOffset * 2) arrowOffset = len / 2.5; 
+
+        let lineStartX = state.x1, lineStartY = state.y1;
+        let lineEndX = state.x2, lineEndY = state.y2;
+
+        if (type === 'arrow-single' || type === 'arrow-double') {
+            lineEndX -= (dx/len) * arrowOffset;
+            lineEndY -= (dy/len) * arrowOffset;
+        }
+        if (type === 'arrow-double') {
+            lineStartX += (dx/len) * arrowOffset;
+            lineStartY += (dy/len) * arrowOffset;
+        }
+
+        let line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute('x1', lineStartX); line.setAttribute('y1', lineStartY);
+        line.setAttribute('x2', lineEndX); line.setAttribute('y2', lineEndY);
+        line.setAttribute('stroke', color); line.setAttribute('stroke-width', strokeSize);
+        line.setAttribute('stroke-linecap', 'round');
+        g.appendChild(line);
+
+        function drawPoly(targetX, targetY, fromX, fromY) {
+            let angle = Math.atan2(targetY - fromY, targetX - fromX);
+            let p1x = targetX - arrowHeadSize * Math.cos(angle - Math.PI / 6);
+            let p1y = targetY - arrowHeadSize * Math.sin(angle - Math.PI / 6);
+            let p2x = targetX - arrowHeadSize * Math.cos(angle + Math.PI / 6);
+            let p2y = targetY - arrowHeadSize * Math.sin(angle + Math.PI / 6);
+            let poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            poly.setAttribute('points', `${targetX},${targetY} ${p1x},${p1y} ${p2x},${p2y}`);
+            poly.setAttribute('fill', color);
+            g.appendChild(poly);
+        }
+
+        if (type === 'arrow-single' || type === 'arrow-double') drawPoly(state.x2, state.y2, state.x1, state.y1);
+        if (type === 'arrow-double') drawPoly(state.x1, state.y1, state.x2, state.y2);
+      } 
+      else if (type === 'ellipse') {
+        let actualX = state.w < 0 ? state.x + state.w : state.x;
+        let actualY = state.h < 0 ? state.y + state.h : state.y;
+        let actualW = Math.abs(state.w); let actualH = Math.abs(state.h);
+        let el = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+        el.setAttribute('cx', actualX + actualW/2); el.setAttribute('cy', actualY + actualH/2);
+        el.setAttribute('rx', actualW/2); el.setAttribute('ry', actualH/2);
+        // 橢圓邊框粗細由 thickness 控制
+        el.setAttribute('stroke', color); el.setAttribute('stroke-width', Math.max(1, thickness)); el.setAttribute('fill', 'none');
+        g.appendChild(el);
+      } 
+      else if (type === 'cross') {
+        // 叉叉手臂長度由 size 控制，線條由 thickness 控制
+        let s = Math.max(5, size);
+        let l1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        let l2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        [l1, l2].forEach(l => { l.setAttribute('stroke', color); l.setAttribute('stroke-width', Math.max(1, thickness)); l.setAttribute('stroke-linecap', 'round'); });
+        l1.setAttribute('x1', state.cx - s); l1.setAttribute('y1', state.cy - s); l1.setAttribute('x2', state.cx + s); l1.setAttribute('y2', state.cy + s);
+        l2.setAttribute('x1', state.cx + s); l2.setAttribute('y1', state.cy - s); l2.setAttribute('x2', state.cx - s); l2.setAttribute('y2', state.cy + s);
+        g.appendChild(l1); g.appendChild(l2);
+      } 
+      else if (type === 'text') {
+        let text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute('x', state.x); text.setAttribute('y', state.y);
+        text.setAttribute('fill', color); 
+        // 文字大小由 size 控制
+        text.setAttribute('font-size', Math.max(10, size));
+        text.setAttribute('font-family', font);
+        let lines = (state.text || "").split('\n');
+        lines.forEach((lineStr, i) => {
+          let tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+          tspan.setAttribute('x', state.x); tspan.setAttribute('dy', i === 0 ? 0 : '1.2em');
+          tspan.textContent = lineStr; text.appendChild(tspan);
+        });
+        text.style.userSelect = 'none'; g.appendChild(text);
+      } 
+      else if (type === 'freehand') {
+        let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute('fill', 'none'); path.setAttribute('stroke', color); 
+        path.setAttribute('stroke-width', thickness); path.setAttribute('stroke-linecap', 'round'); 
+        path.setAttribute('stroke-linejoin', 'round');
+        let d = state.pts.map((p, i) => (i===0?'M':'L') + ` ${p[0]} ${p[1]}`).join(' ');
+        path.setAttribute('d', d); g.appendChild(path);
+      }
+      else if (type === 'cohabit-draw') {
+        let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute('fill', 'none'); path.setAttribute('stroke', color); 
+        path.setAttribute('stroke-width', Math.max(1, thickness)); 
+        // 移除虛線效果，改為實線
+        path.removeAttribute('stroke-dasharray'); 
+        path.setAttribute('stroke-linecap', 'round'); 
+        path.setAttribute('stroke-linejoin', 'round');
+
+        if (state.isFinished) {
+          // 放開滑鼠後自動平滑處理並完美閉合
+          let d = buildSmoothClosedPath(state.pts);
+          path.setAttribute('d', d);
+        } else {
+          // 繪製過程中即時顯示手繪軌跡
+          let d = state.pts.map((p, i) => (i===0?'M':'L') + ` ${p[0]} ${p[1]}`).join(' ');
+          path.setAttribute('d', d);
+        }
+        g.appendChild(path);
+      }
+    }
+
+    function applyTransform(el) { 
+      let tx = parseFloat(el.getAttribute('data-tx') || 0); let ty = parseFloat(el.getAttribute('data-ty') || 0); 
+      let rot = parseFloat(el.getAttribute('data-rot') || 0);
+      try {
+        let bbox = el.getBBox();
+        let cx = bbox.x + bbox.width / 2; let cy = bbox.y + bbox.height / 2;
+        el.setAttribute('transform', `translate(${tx}, ${ty}) translate(${cx}, ${cy}) rotate(${rot}) translate(${-cx}, ${-cy})`); 
+      } catch(e) {}
+    }
+
+    function createHandle(x, y, cursor, action, targetId) {
+      let h = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      h.setAttribute('cx', x); h.setAttribute('cy', y); h.setAttribute('r', 5);
+      h.setAttribute('fill', '#ffffff'); h.setAttribute('stroke', '#007bff');
+      h.setAttribute('stroke-width', '2'); h.style.cursor = cursor;
+      h.classList.add('control-handle');
+      h.setAttribute('data-action', action);
+      h.setAttribute('data-target', targetId);
+      return h;
+    }
+
+    function renderControls() {
+      controlsLayer.innerHTML = ''; 
+      if (selectedEls.size !== 1) return; 
+
+      let target = Array.from(selectedEls)[0];
+      let type = target.getAttribute('data-type');
+      if(type === 'group' || type === 'freehand' || type === 'cohabit-draw') return; 
+
+      let stateStr = target.getAttribute('data-state');
+      if(!stateStr) return;
+      let state = JSON.parse(stateStr);
+      let tId = target.getAttribute('id');
+      
+      let currentTransform = target.getAttribute('transform');
+      if(currentTransform) controlsLayer.setAttribute('transform', currentTransform);
+      else controlsLayer.removeAttribute('transform');
+
+      if (type === 'line' || type === 'arrow-single' || type === 'arrow-double') {
+        controlsLayer.appendChild(createHandle(state.x1, state.y1, 'pointer', 'p1', tId));
+        controlsLayer.appendChild(createHandle(state.x2, state.y2, 'pointer', 'p2', tId));
+      } 
+      else if (type === 'ellipse') {
+        let tL = createHandle(state.x, state.y, 'nwse-resize', 'tl', tId);
+        let tR = createHandle(state.x + state.w, state.y, 'nesw-resize', 'tr', tId);
+        let bL = createHandle(state.x, state.y + state.h, 'nesw-resize', 'bl', tId);
+        let bR = createHandle(state.x + state.w, state.y + state.h, 'nwse-resize', 'br', tId);
+        controlsLayer.appendChild(tL); controlsLayer.appendChild(tR);
+        controlsLayer.appendChild(bL); controlsLayer.appendChild(bR);
+      }
+    }
+
+    function toggleSelect(el, evt) {
+      if (!el) {
+        if (!evt || !evt.shiftKey) { selectedEls.forEach(e => e.classList.remove('selected-el')); selectedEls.clear(); }
+        renderControls();
+        return;
+      }
+      
+      let customParent = el.closest('.custom-element');
+      while(customParent && customParent.parentElement && customParent.parentElement.classList.contains('custom-element')) {
+        customParent = customParent.parentElement;
+      }
+
+      if (evt && evt.shiftKey) {
+        if (selectedEls.has(customParent)) { customParent.classList.remove('selected-el'); selectedEls.delete(customParent); } 
+        else { customParent.classList.add('selected-el'); selectedEls.add(customParent); }
+      } else {
+        if (!selectedEls.has(customParent)) {
+          selectedEls.forEach(e => e.classList.remove('selected-el')); selectedEls.clear();
+          customParent.classList.add('selected-el'); selectedEls.add(customParent);
+        }
+      }
+      
+      syncToolbarWithSelection();
+      renderControls();
+    }
+
+    function syncToolbarWithSelection() {
+      if (selectedEls.size === 1) {
+        let el = Array.from(selectedEls)[0];
+        let color = el.getAttribute('data-color');
+        if(color) document.getElementById('draw-color').value = color;
+        
+        let size = el.getAttribute('data-size');
+        if(size) document.getElementById('draw-size').value = parseFloat(size);
+
+        let thickness = el.getAttribute('data-thickness');
+        if(thickness) document.getElementById('draw-thickness').value = parseFloat(thickness);
+
+        let font = el.getAttribute('data-font');
+        if(font) document.getElementById('draw-font').value = font;
+      }
+    }
+
+    function applyStyleSelected() {
+      let color = document.getElementById('draw-color').value;
+      let size = document.getElementById('draw-size').value;
+      let thickness = document.getElementById('draw-thickness').value;
+      let font = document.getElementById('draw-font').value;
+      
+      selectedEls.forEach(el => {
+        if(el.getAttribute('data-type') !== 'group') {
+           el.setAttribute('data-color', color);
+           el.setAttribute('data-size', size);
+           el.setAttribute('data-thickness', thickness);
+           el.setAttribute('data-font', font);
+           renderShape(el);
+        } else {
+           el.querySelectorAll('.custom-element').forEach(child => {
+             child.setAttribute('data-color', color);
+             child.setAttribute('data-size', size);
+             child.setAttribute('data-thickness', thickness);
+             child.setAttribute('data-font', font);
+             renderShape(child);
+           });
+        }
+      });
+      renderControls();
+    }
+
+    svg.addEventListener('mousedown', function (evt) {
+      if (evt.button === 2) {
+         isCanvasPanning = true;
+         canvasPanStart = { x: evt.clientX, y: evt.clientY };
+         viewBoxStart = { x: window.currentViewBox.x, y: window.currentViewBox.y };
+         svg.style.cursor = 'grabbing';
+         return;
+      }
+
+      let mode = document.getElementById('draw-mode').value; 
+      let color = document.getElementById('draw-color').value; 
+      let size = document.getElementById('draw-size').value; 
+      let thickness = document.getElementById('draw-thickness').value; 
+      let font = document.getElementById('draw-font').value;
+      let pos = getMousePos(evt);
+      
+      let handle = evt.target.closest('.control-handle');
+      if (handle) {
+         activeHandleAction = handle.getAttribute('data-action');
+         activeHandleTarget = document.getElementById(handle.getAttribute('data-target'));
+         handleStartPt = pos;
+         return; 
+      }
+      
+      let nodeGroup = evt.target.closest('.draggable-node');
+      if (nodeGroup && mode === 'select') { isDraggingNode = true; draggedNodeId = nodeGroup.getAttribute('data-person-id'); startPt = pos; return; }
+      
+      if (mode === 'select') {
+        let customParent = evt.target.closest('.custom-element');
+        if (customParent) { 
+          toggleSelect(evt.target, evt); isDrawing = true; startPt = pos; 
+        } 
+        else { 
+          if (!evt.shiftKey) toggleSelect(null, evt);
+          isBoxSelecting = true;
+          boxSelectStartPt = pos;
+          if (!selectionBoxRect) {
+            selectionBoxRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            selectionBoxRect.setAttribute('fill', 'rgba(0, 123, 255, 0.15)');
+            selectionBoxRect.setAttribute('stroke', '#007bff');
+            selectionBoxRect.setAttribute('stroke-width', '1');
+            selectionBoxRect.setAttribute('stroke-dasharray', '4,4');
+            selectionBoxLayer.appendChild(selectionBoxRect);
+          }
+          selectionBoxRect.setAttribute('x', pos.x);
+          selectionBoxRect.setAttribute('y', pos.y);
+          selectionBoxRect.setAttribute('width', 0);
+          selectionBoxRect.setAttribute('height', 0);
+          selectionBoxRect.style.display = 'block';
+        }
+      } 
+      else if (mode === 'text') {
+        customPrompt("請輸入標註文字 (可多行):", function(textStr) {
+          if (textStr) { 
+            let state = { x: pos.x, y: pos.y, text: textStr };
+            let g = createCustomElement('text', state, color, size, thickness, font);
+            renderShape(g); customLayer.appendChild(g);
+            setTimeout(() => { toggleSelect(g); }, 10); 
+          } 
+          document.getElementById('draw-mode').value = 'select';
+        });
+      } 
+      else if (mode === 'cross') {
+        let state = { cx: pos.x, cy: pos.y };
+        let g = createCustomElement('cross', state, color, size, thickness);
+        renderShape(g); customLayer.appendChild(g);
+        setTimeout(() => { toggleSelect(g); document.getElementById('draw-mode').value = 'select'; }, 10);
+      } 
+      else if (mode === 'ellipse') {
+        isDrawing = true; startPt = pos;
+        let state = { x: pos.x, y: pos.y, w: 0, h: 0 };
+        currentDrawEl = createCustomElement('ellipse', state, color, size, thickness);
+        renderShape(currentDrawEl); customLayer.appendChild(currentDrawEl);
+      }
+      else if (mode === 'freehand') {
+        isDrawing = true; 
+        let state = { pts: [[pos.x, pos.y]] };
+        currentDrawEl = createCustomElement('freehand', state, color, size, thickness);
+        renderShape(currentDrawEl); customLayer.appendChild(currentDrawEl);
+      } 
+      else if (mode === 'cohabit-draw') {
+        isDrawing = true; 
+        let state = { pts: [[pos.x, pos.y]], isFinished: false };
+        currentDrawEl = createCustomElement('cohabit-draw', state, color, size, thickness);
+        renderShape(currentDrawEl); customLayer.appendChild(currentDrawEl);
+      }
+      else if (mode === 'line' || mode === 'arrow-single' || mode === 'arrow-double') { 
+        isDrawing = true; startPt = pos; 
+        let state = { x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y };
+        currentDrawEl = createCustomElement(mode, state, color, size, thickness);
+        renderShape(currentDrawEl); customLayer.appendChild(currentDrawEl); 
+      }
+    });
+    
+    svg.addEventListener('mousemove', function (evt) {
+      if (isCanvasPanning) {
+          let rect = svg.getBoundingClientRect();
+          let scaleX = window.currentViewBox.w / rect.width;
+          let scaleY = window.currentViewBox.h / rect.height;
+          let dx = (evt.clientX - canvasPanStart.x) * scaleX;
+          let dy = (evt.clientY - canvasPanStart.y) * scaleY;
+          window.currentViewBox.x = viewBoxStart.x - dx;
+          window.currentViewBox.y = viewBoxStart.y - dy;
+          svg.setAttribute("viewBox", `${window.currentViewBox.x} ${window.currentViewBox.y} ${window.currentViewBox.w} ${window.currentViewBox.h}`);
+          return;
+      }
+
+      let pos = getMousePos(evt);
+
+      if (isBoxSelecting && boxSelectStartPt && selectionBoxRect) {
+         let bx = Math.min(boxSelectStartPt.x, pos.x);
+         let by = Math.min(boxSelectStartPt.y, pos.y);
+         let bw = Math.abs(pos.x - boxSelectStartPt.x);
+         let bh = Math.abs(pos.y - boxSelectStartPt.y);
+         
+         selectionBoxRect.setAttribute('x', bx);
+         selectionBoxRect.setAttribute('y', by);
+         selectionBoxRect.setAttribute('width', bw);
+         selectionBoxRect.setAttribute('height', bh);
+
+         const allElements = customLayer.querySelectorAll('.custom-element');
+         allElements.forEach(el => {
+           try {
+             let bbox = el.getBBox();
+             let isIntersecting = !(bbox.x > bx + bw || 
+                                    bbox.x + bbox.width < bx || 
+                                    bbox.y > by + bh || 
+                                    bbox.y + bbox.height < by);
+             if (isIntersecting) {
+               el.classList.add('selected-el');
+               selectedEls.add(el);
+             } else if (!evt.shiftKey) {
+               el.classList.remove('selected-el');
+               selectedEls.delete(el);
+             }
+           } catch(e) {}
+         });
+         syncToolbarWithSelection();
+         renderControls();
+         return;
+      }
+
+      if (activeHandleAction && activeHandleTarget) {
+         let state = JSON.parse(activeHandleTarget.getAttribute('data-state'));
+         let dx = pos.x - handleStartPt.x;
+         let dy = pos.y - handleStartPt.y;
+
+         if (activeHandleAction === 'p1') { state.x1 = pos.x; state.y1 = pos.y; }
+         else if (activeHandleAction === 'p2') { state.x2 = pos.x; state.y2 = pos.y; }
+         else if (activeHandleAction === 'tl') { state.x = pos.x; state.y = pos.y; state.w -= dx; state.h -= dy; }
+         else if (activeHandleAction === 'tr') { state.y = pos.y; state.w = pos.x - state.x; state.h -= dy; }
+         else if (activeHandleAction === 'bl') { state.x = pos.x; state.w -= dx; state.h = pos.y - state.y; }
+         else if (activeHandleAction === 'br') { state.w = pos.x - state.x; state.h = pos.y - state.y; }
+
+         activeHandleTarget.setAttribute('data-state', JSON.stringify(state));
+         renderShape(activeHandleTarget);
+         renderControls();
+         handleStartPt = pos;
+         return;
+      }
+
+      if (isDraggingNode && draggedNodeId && startPt) { 
+        let dx = pos.x - startPt.x; let dy = pos.y - startPt.y; 
+        if (!nodeOffsets[draggedNodeId]) nodeOffsets[draggedNodeId] = { x: 0, y: 0 }; 
+        nodeOffsets[draggedNodeId].x += dx; nodeOffsets[draggedNodeId].y += dy; startPt = pos; 
+        renderGenogram(); return; 
+      }
+      
+      if (!isDrawing) return; 
+      let mode = document.getElementById('draw-mode').value;
+      
+      if (mode === 'select' && selectedEls.size > 0 && startPt) {
+        let dx = pos.x - startPt.x; let dy = pos.y - startPt.y; 
+        selectedEls.forEach(el => {
+          let type = el.getAttribute('data-type');
+          if (type === 'group') {
+             let tx = parseFloat(el.getAttribute('data-tx') || 0) + dx; let ty = parseFloat(el.getAttribute('data-ty') || 0) + dy; 
+             el.setAttribute('data-tx', tx); el.setAttribute('data-ty', ty); applyTransform(el);
+          } else {
+             let stateStr = el.getAttribute('data-state');
+             if (stateStr) {
+               let state = JSON.parse(stateStr);
+               if (type === 'line' || type === 'arrow-single' || type === 'arrow-double') {
+                 state.x1 += dx; state.y1 += dy; state.x2 += dx; state.y2 += dy;
+               } else if (type === 'ellipse' || type === 'text') {
+                 state.x += dx; state.y += dy;
+               } else if (type === 'cross') {
+                 state.cx += dx; state.cy += dy;
+               } else if (type === 'freehand' || type === 'cohabit-draw') {
+                 state.pts = state.pts.map(p => [p[0]+dx, p[1]+dy]);
+               }
+               el.setAttribute('data-state', JSON.stringify(state));
+               renderShape(el);
+             }
+          }
+        });
+        renderControls();
+        startPt = pos;
+      } 
+      else if (currentDrawEl) {
+        let state = JSON.parse(currentDrawEl.getAttribute('data-state'));
+        if (mode === 'freehand' || mode === 'cohabit-draw') {
+          state.pts.push([pos.x, pos.y]);
+        } 
+        else if (mode === 'ellipse') {
+          state.w = pos.x - state.x; state.h = pos.y - state.y;
+        }
+        else if (mode.includes('line') || mode.includes('arrow')) { 
+          state.x2 = pos.x; state.y2 = pos.y;
+        }
+        currentDrawEl.setAttribute('data-state', JSON.stringify(state));
+        renderShape(currentDrawEl);
+      }
+    });
+    
+    svg.addEventListener('mouseup', function (evt) {
+      if (evt.button === 2) {
+         isCanvasPanning = false;
+         svg.style.cursor = 'default';
+         return;
+      }
+
+      if (isBoxSelecting) {
+        isBoxSelecting = false;
+        boxSelectStartPt = null;
+        if (selectionBoxRect) selectionBoxRect.style.display = 'none';
+        return;
+      }
+
+      if (activeHandleAction) { activeHandleAction = null; activeHandleTarget = null; handleStartPt = null; return; }
+      if (isDraggingNode) { isDraggingNode = false; draggedNodeId = null; startPt = null; return; }
+      
+      if (isDrawing && currentDrawEl) {
+         let mode = document.getElementById('draw-mode').value;
+         if (mode === 'cohabit-draw') {
+           // 完成同住圈手繪，觸發平滑收斂與閉合演算法
+           let state = JSON.parse(currentDrawEl.getAttribute('data-state'));
+           state.isFinished = true;
+           currentDrawEl.setAttribute('data-state', JSON.stringify(state));
+           renderShape(currentDrawEl);
+         }
+         toggleSelect(currentDrawEl, null); document.getElementById('draw-mode').value = 'select'; 
+      }
+      isDrawing = false; currentDrawEl = null; startPt = null;
+    });
+
+    svg.addEventListener('dblclick', function(evt) {
+      let mode = document.getElementById('draw-mode').value;
+      if (mode !== 'select') return;
+      let customParent = evt.target.closest('.custom-element');
+      if (customParent && customParent.getAttribute('data-type') === 'text') {
+          let state = JSON.parse(customParent.getAttribute('data-state'));
+          customPrompt("編輯標註文字 (可多行):", function(newText) {
+              if (newText !== null) {
+                  state.text = newText;
+                  customParent.setAttribute('data-state', JSON.stringify(state));
+                  renderShape(customParent);
+                  renderControls();
+              }
+          }, state.text);
+      }
+    });
+
+    svg.addEventListener('contextmenu', function(evt) {
+        evt.preventDefault();
+    });
+
+    window.addEventListener('mouseup', function(evt) {
+        if (evt.button === 2 && isCanvasPanning) {
+            isCanvasPanning = false;
+            svg.style.cursor = 'default';
+        }
+    });
+
+    svg.addEventListener('wheel', function(evt) {
+        evt.preventDefault();
+        if (!window.currentViewBox) return;
+        let zoomFactor = evt.deltaY > 0 ? 1.1 : 1 / 1.1;
+        let pt = getMousePos(evt);
+        
+        window.currentViewBox.x = pt.x - (pt.x - window.currentViewBox.x) * zoomFactor;
+        window.currentViewBox.y = pt.y - (pt.y - window.currentViewBox.y) * zoomFactor;
+        window.currentViewBox.w *= zoomFactor;
+        window.currentViewBox.h *= zoomFactor;
+        
+        svg.setAttribute("viewBox", `${window.currentViewBox.x} ${window.currentViewBox.y} ${window.currentViewBox.w} ${window.currentViewBox.h}`);
+    }, { passive: false });
+
+    function transformSelected(action, val) { 
+      if (selectedEls.size === 0) { customAlert("請先點選畫布上的物件。"); return; }
+      if (action === 'delete') { 
+        selectedEls.forEach(el => el.remove()); selectedEls.clear(); renderControls();
+      } else if (action === 'rotate') { 
+        selectedEls.forEach(el => { 
+            let rot = parseFloat(el.getAttribute('data-rot') || 0); el.setAttribute('data-rot', rot + val); applyTransform(el); 
+        });
+      } 
+    }
+
+    function groupSelected() {
+      if(selectedEls.size < 2) { customAlert("請按住 Shift 點選或拉框選取兩個以上的物件才能群組。"); return; }
+      let g = document.createElementNS("http://www.w3.org/2000/svg", "g"); 
+      g.classList.add('custom-element'); g.setAttribute('data-type', 'group');
+      g.setAttribute('data-tx', 0); g.setAttribute('data-ty', 0); g.setAttribute('data-rot', 0);
+      g.style.cursor = 'grab';
+      
+      selectedEls.forEach(el => { g.appendChild(el); });
+      customLayer.appendChild(g);
+      setTimeout(() => { toggleSelect(g, null); }, 10);
+    }
+
+    function ungroupSelected() {
+      let toUngroup = Array.from(selectedEls).filter(el => el.getAttribute('data-type') === 'group');
+      if (toUngroup.length === 0) { customAlert("選取的項目中沒有可以解散的群組。"); return; }
+      
+      toUngroup.forEach(group => {
+         let children = Array.from(group.childNodes);
+         children.forEach(child => customLayer.appendChild(child));
+         group.remove();
+      });
+      selectedEls.clear(); renderControls();
+    }
+    
+    function getSvgSourceForExport() {
+      toggleSelect(null); 
+      controlsLayer.innerHTML = ''; 
+
+      const gridRect = document.getElementById('grid-pattern-rect');
+      if (gridRect) gridRect.style.display = 'none';
+
+      const svgElement = document.getElementById('genogram-svg');
+      let bbox = svgElement.getBBox();
+      const cloneSvg = svgElement.cloneNode(true);
+
+      if (gridRect) gridRect.style.display = 'block';
+
+      const idLabels = cloneSvg.querySelectorAll('.person-id-label');
+      idLabels.forEach(label => label.parentNode.removeChild(label));
+      
+      let pad = 50;
+      let bx = bbox.x - pad;
+      let by = bbox.y - pad;
+      let bw = bbox.width + pad * 2;
+      let bh = bbox.height + pad * 2;
+      
+      if (bw <= pad * 2 || bh <= pad * 2) { bx = 0; by = 0; bw = 800; bh = 600; }
+      
+      cloneSvg.setAttribute('viewBox', `${bx} ${by} ${bw} ${bh}`);
+      cloneSvg.setAttribute('width', bw);
+      cloneSvg.setAttribute('height', bh);
+
+      const serializer = new XMLSerializer();
+      return {
+         source: '<?xml version="1.0" encoding="utf-8"?>\n' + serializer.serializeToString(cloneSvg),
+         width: bw,
+         height: bh
+      };
+    }
+
+    function getFileName(ext) {
+      let name = document.getElementById('filename-input').value.trim() || '家系圖';
+      return name + "." + ext;
+    }
+
+    function downloadSVG() {
+      const exportData = getSvgSourceForExport();
+      const blob = new Blob([exportData.source], { type: "image/svg+xml;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = getFileName("svg");
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+
+    function getSvgAsBase64() {
+      return new Promise((resolve) => {
+        const exportData = getSvgSourceForExport();
+        const blob = new Blob([exportData.source], { type: "image/svg+xml;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = function () {
+          const canvas = document.createElement("canvas");
+          const scale = 6.25; 
+          canvas.width = exportData.width * scale; 
+          canvas.height = exportData.height * scale;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#ffffff"; 
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height); 
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.src = url;
+      });
+    }
+
+    async function downloadPNG() {
+      const dataUrl = await getSvgAsBase64();
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = getFileName("png");
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+
+    function exportJSON() {
+      toggleSelect(null); controlsLayer.innerHTML = ''; 
+      const payload = { people: people, cohabitGroups: cohabitGroups, nodeOffsets: nodeOffsets, customLayerHTML: customLayer.innerHTML };
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload));
+      const a = document.createElement('a');
+      a.href = dataStr; a.download = getFileName("json");
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+
+    function importJSON(event) {
+      const file = event.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = JSON.parse(e.target.result);
+          people = data.people || []; cohabitGroups = data.cohabitGroups || []; nodeOffsets = data.nodeOffsets || {};
+          window.currentViewBox = null;
+          if (data.customLayerHTML !== undefined) {
+             setSVGHtmlSafe(customLayer, data.customLayerHTML);
+             customLayer.querySelectorAll('.custom-element').forEach(el => {
+                if(el.getAttribute('data-state')) renderShape(el);
+             });
+          }
+          renderForms(); customAlert("設定已成功匯入！(畫布所有物件皆可再次拖拉控制點編輯)");
+        } catch (err) { customAlert("檔案解析失敗，請確認是否為正確的 JSON 檔案！"); }
+        event.target.value = "";
+      };
+      reader.readAsText(file);
+    }
+
+    renderForms();
+  </script>
+</body>
+</html>
