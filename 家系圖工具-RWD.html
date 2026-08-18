@@ -148,12 +148,12 @@
       outline: none;
     }
 
-    .control-handle {
-      transition: r 0.1s;
+    .control-handle-visual {
+      transition: r 0.1s, fill 0.1s;
     }
 
-    .control-handle:hover {
-      r: 7;
+    .control-handle:hover .control-handle-visual {
+      r: 8px;
       fill: #eef5ff;
     }
 
@@ -896,6 +896,13 @@
           lineStartY += (dy / len) * arrowOffset;
         }
 
+        // 加入隱形的加寬點擊範圍 (Hit Area)
+        let hitLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        hitLine.setAttribute('x1', state.x1); hitLine.setAttribute('y1', state.y1);
+        hitLine.setAttribute('x2', state.x2); hitLine.setAttribute('y2', state.y2);
+        hitLine.setAttribute('stroke', 'transparent'); hitLine.setAttribute('stroke-width', '24');
+        g.appendChild(hitLine);
+
         let line = document.createElementNS("http://www.w3.org/2000/svg", "line");
         line.setAttribute('x1', lineStartX); line.setAttribute('y1', lineStartY);
         line.setAttribute('x2', lineEndX); line.setAttribute('y2', lineEndY);
@@ -922,6 +929,13 @@
         let actualX = state.w < 0 ? state.x + state.w : state.x;
         let actualY = state.h < 0 ? state.y + state.h : state.y;
         let actualW = Math.abs(state.w); let actualH = Math.abs(state.h);
+
+        let hitEl = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+        hitEl.setAttribute('cx', actualX + actualW / 2); hitEl.setAttribute('cy', actualY + actualH / 2);
+        hitEl.setAttribute('rx', actualW / 2); hitEl.setAttribute('ry', actualH / 2);
+        hitEl.setAttribute('fill', 'none'); hitEl.setAttribute('stroke', 'transparent'); hitEl.setAttribute('stroke-width', '24');
+        g.appendChild(hitEl);
+
         let el = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
         el.setAttribute('cx', actualX + actualW / 2); el.setAttribute('cy', actualY + actualH / 2);
         el.setAttribute('rx', actualW / 2); el.setAttribute('ry', actualH / 2);
@@ -930,6 +944,12 @@
       }
       else if (type === 'cross') {
         let s = Math.max(5, size);
+
+        let hitCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        hitCircle.setAttribute('cx', state.cx); hitCircle.setAttribute('cy', state.cy);
+        hitCircle.setAttribute('r', s + 12); hitCircle.setAttribute('fill', 'transparent');
+        g.appendChild(hitCircle);
+
         let l1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
         let l2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
         [l1, l2].forEach(l => { l.setAttribute('stroke', color); l.setAttribute('stroke-width', Math.max(1, thickness)); l.setAttribute('stroke-linecap', 'round'); });
@@ -952,14 +972,25 @@
         text.style.userSelect = 'none'; g.appendChild(text);
       }
       else if (type === 'freehand') {
+        let d = state.pts.map((p, i) => (i === 0 ? 'M' : 'L') + ` ${p[0]} ${p[1]}`).join(' ');
+
+        let hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        hitPath.setAttribute('fill', 'none'); hitPath.setAttribute('stroke', 'transparent'); hitPath.setAttribute('stroke-width', '24');
+        hitPath.setAttribute('stroke-linecap', 'round'); hitPath.setAttribute('stroke-linejoin', 'round');
+        hitPath.setAttribute('d', d);
+        g.appendChild(hitPath);
+
         let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute('fill', 'none'); path.setAttribute('stroke', color);
         path.setAttribute('stroke-width', thickness); path.setAttribute('stroke-linecap', 'round');
         path.setAttribute('stroke-linejoin', 'round');
-        let d = state.pts.map((p, i) => (i === 0 ? 'M' : 'L') + ` ${p[0]} ${p[1]}`).join(' ');
         path.setAttribute('d', d); g.appendChild(path);
       }
       else if (type === 'cohabit-draw') {
+        let hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        hitPath.setAttribute('fill', 'none'); hitPath.setAttribute('stroke', 'transparent'); hitPath.setAttribute('stroke-width', '24');
+        hitPath.setAttribute('stroke-linecap', 'round'); hitPath.setAttribute('stroke-linejoin', 'round');
+
         let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute('fill', 'none'); path.setAttribute('stroke', color);
         path.setAttribute('stroke-width', Math.max(1, thickness));
@@ -970,10 +1001,13 @@
         if (state.isFinished) {
           let d = buildSmoothClosedPath(state.pts);
           path.setAttribute('d', d);
+          hitPath.setAttribute('d', d);
         } else {
           let d = state.pts.map((p, i) => (i === 0 ? 'M' : 'L') + ` ${p[0]} ${p[1]}`).join(' ');
           path.setAttribute('d', d);
+          hitPath.setAttribute('d', d);
         }
+        g.appendChild(hitPath);
         g.appendChild(path);
       }
     }
@@ -989,14 +1023,27 @@
     }
 
     function createHandle(x, y, cursor, action, targetId) {
+      let g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.style.cursor = cursor;
+      g.classList.add('control-handle');
+      g.setAttribute('data-action', action);
+      g.setAttribute('data-target', targetId);
+
+      // 手機板大面積透明感應區 (確保容易被點選/拖拉)
+      let hit = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      hit.setAttribute('cx', x); hit.setAttribute('cy', y); hit.setAttribute('r', 20);
+      hit.setAttribute('fill', 'transparent');
+      g.appendChild(hit);
+
+      // 畫面可見的控制點實體
       let h = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      h.setAttribute('cx', x); h.setAttribute('cy', y); h.setAttribute('r', 5);
+      h.setAttribute('cx', x); h.setAttribute('cy', y); h.setAttribute('r', 6);
       h.setAttribute('fill', '#ffffff'); h.setAttribute('stroke', '#007bff');
-      h.setAttribute('stroke-width', '2'); h.style.cursor = cursor;
-      h.classList.add('control-handle');
-      h.setAttribute('data-action', action);
-      h.setAttribute('data-target', targetId);
-      return h;
+      h.setAttribute('stroke-width', '2');
+      h.classList.add('control-handle-visual');
+      g.appendChild(h);
+
+      return g;
     }
 
     function renderControls() {
