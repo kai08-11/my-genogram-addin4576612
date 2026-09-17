@@ -1405,7 +1405,7 @@
           </div>
           <button type="button" class="btn-history-undo" onclick="undoHistory()" title="上一步 (Ctrl+Z)" style="background:#74c0fc; color:#0b3d63; margin-left: auto; width:32px; padding:6px 0;" disabled>↶</button>
           <button type="button" class="btn-history-redo" onclick="redoHistory()" title="下一步 (Ctrl+Y)" style="background:#74c0fc; color:#0b3d63; width:32px; padding:6px 0;" disabled>↷</button>
-          <button onclick="autoArrangeLayout()" title="清除所有手動拖曳位移，重新以自動排版整理整張圖（新增子女後常會用到）" style="background:#20c997; width:32px; padding:6px 0;">⟲</button>
+          <button onclick="autoArrangeLayout()" title="以目前的人物位置為基礎：先找出人數最多的一條水平線當基準線，依標準間距（沿用新增人物時的子樹寬度演算法，夫妻左右順序維持原樣、不套用男左女右）重新排列該線並往下撐開排列子孫，再反覆由下往上把各代父母精準置中在其血緣子女最左到最右的正中央（子女的配偶不列入計算），並持續檢查同一水平線上任兩人中心距離至少140px，兩者輪流調整直到全部穩定為止" style="background:#20c997; width:32px; padding:6px 0;">⟲</button>
           <button onclick="toggleFullScreen()" title="全螢幕" style="background:#343a40; width:32px; padding:6px 0;">⛶</button>
           <button type="button" id="canvas-toolbar-toggle" class="floating-toolbar-toggle-btn" onclick="toggleCanvasToolbar()" title="收合／展開物件操作列">︿</button>
         </div>
@@ -2556,11 +2556,49 @@
       const p = people.find(x => x.id === id);
       if (!p) return;
       if (!p.spouse) {
-        // 從未有過配偶 → 自動新增一位異性配偶（已婚）
+        // 從未有過配偶 → 自動新增一位異性配偶（已婚），並直接安置在本人「目前實際顯示
+        // 位置」的左邊或右邊（男左女右慣例，性別不明時預設放右邊），中心距離固定 140px。
+        //
+        // 這裡刻意先記錄本人新增前的實際座標（基礎座標＋手動位移），新配偶的位置以此為
+        // 基準去算，而不是等新配偶加入、樹狀結構重新計算基礎座標之後才決定——因為一旦
+        // 樹狀結構多了一個人，理想基礎座標本身就可能連動偏移，若不先鎖定基準點，兩人
+        // 實際顯示出來的距離就會跟140px對不上。
         let newGender = p.gender === 'M' ? 'F' : (p.gender === 'F' ? 'M' : 'F');
         let newId = getNextID();
+
+        let beforeCoords = getFinalCoordinates().coords;
+        let selfPos = beforeCoords[id] || { x: 600, y: 220 };
+
         people.push({ id: newId, gender: newGender, age: '', disability: false, status: false, isClient: false, hasSpouse: true, spouse: id, hasChildren: false, children: [], hasTwin: false, twinSiblings: [], divorced: false });
         p.hasSpouse = true; p.spouse = newId; p.divorced = false;
+
+        // 男左女右：本人是男性→新配偶（女）放右邊；本人是女性→新配偶（男）放左邊；
+        // 性別不明時預設放右邊，與既有排版慣例一致。
+        let newOnRight = (p.gender !== 'F');
+        let desiredSelfX = selfPos.x;
+        let desiredSpouseX = selfPos.x + (newOnRight ? 140 : -140);
+        let desiredY = selfPos.y;
+
+        // 把本人固定在原本的實際位置（避免因新配偶加入使理想基礎座標跟著牽動、本人自己
+        // 跟著移動），新配偶固定在本人左／右 140px 處；透過寫回 nodeOffsets（相對於加入
+        // 新配偶後重新計算出的基礎座標）換算成對應的位移量來達成。
+        let newBase = calculateBaseCoordinates().coords;
+        let selfBase = newBase[id] || { x: desiredSelfX, y: desiredY };
+        let spouseBase = newBase[newId] || { x: desiredSpouseX, y: desiredY };
+        nodeOffsets[id] = { x: desiredSelfX - selfBase.x, y: desiredY - selfBase.y };
+        nodeOffsets[newId] = { x: desiredSpouseX - spouseBase.x, y: desiredY - spouseBase.y };
+
+        // 檢查新配偶預定位置是否與畫布上其他人（本人與新配偶以外）在同一高度上距離
+        // 小於140px（空間不足／會重疊）；若空間不夠，自動執行一次「整理版面」，並在整理
+        // 時強制套用「同一水平線上任兩人中心距離至少140px」的規則來化解擁擠。
+        let afterCoords = getFinalCoordinates().coords;
+        let crowded = people.some(other => {
+          if (other.id === id || other.id === newId) return false;
+          let pos = afterCoords[other.id];
+          if (!pos) return false;
+          return Math.abs(pos.y - desiredY) < (getPersonRadius(other.id) + 26) && Math.abs(pos.x - desiredSpouseX) < 140;
+        });
+        if (crowded) performAutoArrange();
       } else {
         // 已有配偶（同一人）→ 在「已婚」與「離婚」之間切換
         const sp = people.find(x => x.id === p.spouse);
@@ -2890,47 +2928,42 @@
       upper.pop(); lower.pop(); return lower.concat(upper);
     }
 
-    function calculateBaseCoordinates() {
-      let coords = {}; let drawn = new Set(); let isChild = {}; let genLevels = {}; let familyOf = {};
-      people.forEach(p => { (p.children || []).forEach(cId => { isChild[cId] = true; }); });
-      let topRoots = people.filter(p => !isChild[p.id]);
-
-      // 各獨立家族（頂層根節點）彼此之間的最小間距
-      const FAMILY_GAP = 100;
+    // 共用工具：取得某對夫妻（或單人）依畫面顯示順序排好的子女清單（雙胞胎會排在一起），
+    // 以及「由下往上遞迴計算某對夫妻＋其所有世代後代所需水平寬度」的子樹寬度演算法。
+    // 這是整個工具原本從零重新編排版面（calculateBaseCoordinates）時使用的那套邏輯與間距
+    // 標準（單人 180px／夫妻 280px 為基礎寬度，子女總寬度不足時取父母自身寬度），
+    // 「整理版面」（以現有位置為基礎的局部校正）也沿用同一套，讓兩種排版的間距標準一致。
+    // 每次呼叫都會建立獨立的寬度快取（widthMemo），呼叫者之間互不影響。
+    function createLayoutHelpers(peopleList) {
       const widthMemo = {};
-
-      // 取得某對夫妻（或單人）依畫面顯示順序排列好的子女清單（雙胞胎會被排在一起）
       function getOrderedChildren(p1Obj, p2Obj) {
         let childrenSet = new Set(p1Obj ? (p1Obj.children || []) : []);
         if (p2Obj) { (p2Obj.children || []).forEach(cId => childrenSet.add(cId)); }
         let rawChildren = Array.from(childrenSet);
-        rawChildren.sort((a, b) => people.findIndex(x => x.id === a) - people.findIndex(x => x.id === b));
+        rawChildren.sort((a, b) => peopleList.findIndex(x => x.id === a) - peopleList.findIndex(x => x.id === b));
         let children = []; let visitedChild = new Set();
         rawChildren.forEach(cId => {
-          if (visitedChild.has(cId)) return; let childObj = people.find(x => x.id === cId);
+          if (visitedChild.has(cId)) return; let childObj = peopleList.find(x => x.id === cId);
           if (childObj && childObj.hasTwin && childObj.twinSiblings) {
             let siblingsInThisFamily = childObj.twinSiblings.filter(tid => rawChildren.includes(tid));
-            siblingsInThisFamily.sort((a, b) => people.findIndex(x => x.id === a) - people.findIndex(x => x.id === b));
+            siblingsInThisFamily.sort((a, b) => peopleList.findIndex(x => x.id === a) - peopleList.findIndex(x => x.id === b));
             children.push(cId); visitedChild.add(cId);
             siblingsInThisFamily.forEach(tid => { if (!visitedChild.has(tid)) { children.push(tid); visitedChild.add(tid); } });
           } else { children.push(cId); visitedChild.add(cId); }
         });
         return children;
       }
-
-      // 由下往上遞迴計算：某對夫妻（或單人）連同其「所有世代後代」總共需要多寬的水平空間，
-      // 這樣不論哪一代人數最多、家庭數最多，上層都能依實際需要的寬度平均分配，而不會互相擠壓重疊
       function computeSubtreeWidth(p1Id, p2Id) {
         let key = p1Id + '::' + (p2Id || '');
         if (widthMemo[key] !== undefined) return widthMemo[key];
-        let p1Obj = people.find(x => x.id === p1Id); let p2Obj = p2Id ? people.find(x => x.id === p2Id) : null;
+        let p1Obj = peopleList.find(x => x.id === p1Id); let p2Obj = p2Id ? peopleList.find(x => x.id === p2Id) : null;
         let ownWidth = p2Obj ? 280 : 180;
 
         let children = getOrderedChildren(p1Obj, p2Obj);
         if (children.length === 0) { widthMemo[key] = ownWidth; return ownWidth; }
 
         let childWidths = children.map(cId => {
-          let childObj = people.find(x => x.id === cId);
+          let childObj = peopleList.find(x => x.id === cId);
           return childObj && childObj.spouse ? computeSubtreeWidth(cId, childObj.spouse) : computeSubtreeWidth(cId, null);
         });
         let childrenTotal = childWidths.reduce((a, b) => a + b, 0);
@@ -2938,6 +2971,24 @@
         widthMemo[key] = width;
         return width;
       }
+      // 決定一對夫妻左右順序：女左男右的資料一律轉成男左女右；其餘（同性別／性別未知）情況
+      // 維持傳入順序（p1 在左），與原本 layoutCouple 判斷式的預設分支結果一致。
+      function orderLeftRight(p1Id, p2Id) {
+        let p1Obj = peopleList.find(x => x.id === p1Id), p2Obj = peopleList.find(x => x.id === p2Id);
+        if (p1Obj && p2Obj && p1Obj.gender === 'F' && p2Obj.gender === 'M') return [p2Id, p1Id];
+        return [p1Id, p2Id];
+      }
+      return { getOrderedChildren, computeSubtreeWidth, orderLeftRight };
+    }
+
+    function calculateBaseCoordinates() {
+      let coords = {}; let drawn = new Set(); let isChild = {}; let genLevels = {}; let familyOf = {};
+      people.forEach(p => { (p.children || []).forEach(cId => { isChild[cId] = true; }); });
+      let topRoots = people.filter(p => !isChild[p.id]);
+
+      // 各獨立家族（頂層根節點）彼此之間的最小間距
+      const FAMILY_GAP = 100;
+      const { getOrderedChildren, computeSubtreeWidth } = createLayoutHelpers(people);
 
       // familyIdx：每一組「由上方按鈕新增的獨立世代（頂層根節點，含其配偶與後代）」的專屬編號，
       // 用來讓畫布上的底色區塊依「獨立家族」分組，而不是單純依世代深度分組（避免不相關的家族被誤判為同一代而共用同一底色）
@@ -3009,16 +3060,311 @@
       return { coords: finalCoords, genLevels, familyOf };
     }
 
-    // 整理版面：清除所有人物手動拖曳的位移量，讓整張圖依自動排版邏輯重新置中排列
-    // （新增子女等結構變動後，若之前有拖曳過人物位置，容易變得凌亂，可用此鍵一次整理乾淨）
+    // 對齊校正：以「目前畫面上人物的現有位置」為基礎進行整理，而不是丟棄手動位置、
+    // 完全依血緣關係從頭重算。整體邏輯：
+    //
+    //   1) 水平分組：把每個人物圖案的「上緣／下緣」想成兩條平行線，凡是上下緣範圍互相
+    //      碰到（重疊）的人物，一律視為同一條水平線；另外，只要兩人是夫妻，即使因手動
+    //      位置略有高低差、上下緣沒有真的碰在一起，也強制視為同一條水平線上的人物
+    //      （避免夫妻其中一人被誤判為落單、導致配對與寬度判斷出錯）。每條線各自先取
+    //      平均高度做水平校正（單純對齊 Y，不調整 X），純粹依目前實際高度分組，不論
+    //      是否同一世代。
+    //   2) 找基準線：人數最多（配偶各算一人頭）的那一條水平線當作基準線。
+    //   3) 基準線重新分配間距：依目前左右順序（維持原本誰在左誰在右，不套用男左女右的
+    //      性別規則），把夫妻視為一個整體單位，用「子樹所需
+    //      寬度」演算法（沿用工具原本從零重編版面時的同一套間距標準：單人 180px／
+    //      夫妻 280px 為基礎寬度，子女需要更多空間時取子女總寬度）算出每個單位應得的
+    //      寬度，整體置中在這條線原本的中心點上——這一步就是「間距太密要撐開、太鬆要
+    //      壓縮」的地方，密集的單位會被撐開到標準間距，鬆散的單位會被收攏。
+    //   4) 往下鋪開子孫：從基準線的每個單位出發，依血緣子女（不含子女自己的配偶）遞迴
+    //      往下，同樣用子樹所需寬度置中排列每一代子孫（夫妻左右順序同樣維持原本順序，
+    //      不套用性別規則）；子女彼此需要的空間如果比父母
+    //      目前的間距大，父母間距會自動撐開，撐不夠會一路往上撐到祖父母，最遠端狀況下
+    //      連基準線本身的間距都可能被撐開（這是基準線間距在第 3 步之後，仍可能再變動的
+    //      唯一情況）。每個人下一代的垂直位置沿用第 1 步水平分組校正後的高度，不重新
+    //      計算 Y。
+    //   5) 往上置中祖先：從基準線開始，逐代往上找父母，只要其血緣子女（不含子女的配偶）
+    //      都已經固定，就決定這對父母（夫妻整體）需要精準置中在血緣子女最左到最右的正
+    //      中央，並依「由下往上、同輩由左到右」的順序記錄下來（centeringOrder），跟
+    //      基準線的血緣沒有關聯的旁支人物（例如另一支沒有子女、或子女都已經處理完的
+    //      家族），不受第 3、4 步影響，只會依這一步的置中規則各自校正。
+    //   5.5) 置中／間距收斂迴圈：置中與140px間距這兩條規則會互相牽動——父母移去置中
+    //      可能讓它跟旁人距離小於140px而被推開，推開後又不再置中——因此反覆執行「間距
+    //      檢查（不足就把右側推開）→ 依 centeringOrder 由下往上重新置中」，直到某一輪
+    //      兩者都沒有再移動任何人為止，確保所有父母最終同時滿足「精準置中」與「至少
+    //      140px間距」，不會像單次執行那樣顧此失彼。
     function autoArrangeLayout() {
-      customConfirm('系統將自動排版人物位置，確定要重新整理嗎？', function (ok) {
+      customConfirm('將以目前的人物位置為基礎：先找出人數最多的一條水平線當基準線，依標準間距重新排列該線間距（夫妻左右順序維持原樣），再往下用子樹所需寬度撐開排列子孫，然後反覆由下往上把各代父母精準置中在子女之間並確保間距至少140px，直到穩定為止，確定要執行嗎？', function (ok) {
         if (!ok) return;
-        nodeOffsets = {};
+        performAutoArrange();
+      });
+    }
+
+    // 「整理版面」實際邏輯本體，抽出成獨立函式，讓「整理版面」按鈕（需先跳確認視窗）與
+    // 其他操作（例如新增配偶但空間不足時）都能重複使用同一套整理規則，且後者不需要、
+    // 也不應該再跳一次確認視窗。整套規則全程都必須滿足「同一水平線上任兩人中心距離
+    // 至少140px」，這是貫穿基準線分配、往下鋪開、往上置中、到最後保險檢查的統一標準。
+    function performAutoArrange() {
+      if (people.length === 0) return;
+
+      {
+        const { coords: baseCoords } = calculateBaseCoordinates();
+
+        // 目前每個人的「最終座標」＝ 基礎座標 ＋ 手動位移
+        let finalX = {}, finalY = {};
+        people.forEach(p => {
+          let base = baseCoords[p.id] || { x: 0, y: 0 };
+          let off = nodeOffsets[p.id] || { x: 0, y: 0 };
+          finalX[p.id] = base.x + off.x;
+          finalY[p.id] = base.y + off.y;
+        });
+
+        // ---- 1) 水平分組：人物圖案上／下緣是否互相碰到（聯集／串連），加上「夫妻一律
+        //         視為同一條水平線」的強制規則 ----
+        let ufParent = {};
+        function ufFind(id) {
+          if (ufParent[id] === undefined) ufParent[id] = id;
+          while (ufParent[id] !== id) { ufParent[id] = ufParent[ufParent[id]]; id = ufParent[id]; }
+          return id;
+        }
+        function ufUnion(a, b) { let ra = ufFind(a), rb = ufFind(b); if (ra !== rb) ufParent[ra] = rb; }
+        people.forEach(p => { ufFind(p.id); });
+        let bounds = {};
+        people.forEach(p => { let r = getPersonRadius(p.id); bounds[p.id] = { top: finalY[p.id] - r, bottom: finalY[p.id] + r }; });
+        for (let i = 0; i < people.length; i++) {
+          for (let j = i + 1; j < people.length; j++) {
+            let a = people[i].id, b = people[j].id;
+            if (bounds[a].top <= bounds[b].bottom && bounds[b].top <= bounds[a].bottom) ufUnion(a, b);
+          }
+        }
+        // 配偶關係一律視為同一條水平線：即使夫妻兩人因手動位置略有高低差，導致上下緣範圍
+        // 沒有實際碰在一起（無法透過上面的重疊判斷串連），也要強制歸類為同一條水平線上的
+        // 人物，這樣夫妻才會被當成同一個「整體單位」處理，避免其中一方被誤判成落單、
+        // 進而配對錯誤、寬度算錯或該代整體位置跑掉。
+        people.forEach(p => { if (p.spouse) ufUnion(p.id, p.spouse); });
+
+        let rowGroupMap = {};
+        people.forEach(p => { let root = ufFind(p.id); (rowGroupMap[root] = rowGroupMap[root] || []).push(p.id); });
+        let rowGroups = Object.values(rowGroupMap);
+
+        // 每條水平線先各自水平校正（Y 取平均），同時記錄每個人所屬的那一整條水平線陣列
+        // （之後用來判斷「同一條水平線上還有誰」以避免重疊）
+        let personRow = {};
+        rowGroups.forEach(rowIds => {
+          let avgY = rowIds.reduce((s, id) => s + finalY[id], 0) / rowIds.length;
+          rowIds.forEach(id => { finalY[id] = avgY; personRow[id] = rowIds; });
+        });
+
+        // ---- 2) 找基準線：純粹以人數（頭數，配偶各算一人）最多的水平線為準，不論世代 ----
+        let baselineRow = rowGroups[0];
+        rowGroups.forEach(rowIds => { if (rowIds.length > baselineRow.length) baselineRow = rowIds; });
+
+        const { getOrderedChildren, computeSubtreeWidth } = createLayoutHelpers(people);
+        let fixed = new Set();
+
+        // 決定一對夫妻的左右順序：一律沿用「整理前」畫面上兩人原本的左右順序（依目前
+        // finalX 座標，誰在左誰在右就維持誰在左誰在右），不套用性別規則，避免整理版面
+        // 把使用者原本刻意排好、不符合男左女右慣例的夫妻順序給打亂、左右對調。
+        function orderByCurrentX(a, b) { return finalX[a] <= finalX[b] ? [a, b] : [b, a]; }
+
+        // ---- 3) 基準線重新分配間距：配偶配成一個整體單位，依現有左右順序，用子樹所需
+        //         寬度當作每個單位應得的標準間距，整體置中在原本這條線的中心點上 ----
+        {
+          let units = []; let seen = new Set();
+          baselineRow.forEach(id => {
+            if (seen.has(id)) return;
+            let p = people.find(x => x.id === id);
+            let spouseId = (p.spouse && baselineRow.includes(p.spouse)) ? p.spouse : null;
+            if (spouseId) { seen.add(id); seen.add(spouseId); units.push({ ids: [id, spouseId], center: (finalX[id] + finalX[spouseId]) / 2 }); }
+            else { seen.add(id); units.push({ ids: [id], center: finalX[id] }); }
+          });
+          units.sort((a, b) => a.center - b.center);
+          let widths = units.map(u => u.ids.length > 1 ? computeSubtreeWidth(u.ids[0], u.ids[1]) : computeSubtreeWidth(u.ids[0], null));
+          let totalW = widths.reduce((a, b) => a + b, 0);
+          let anchorCenter = units.reduce((s, u) => s + u.center, 0) / units.length;
+          let startX = anchorCenter - totalW / 2; let cur = startX;
+          units.forEach((u, i) => {
+            let slotCenter = cur + widths[i] / 2; cur += widths[i];
+            if (u.ids.length > 1) {
+              let [leftId, rightId] = orderByCurrentX(u.ids[0], u.ids[1]);
+              finalX[leftId] = slotCenter - 70; finalX[rightId] = slotCenter + 70;
+            } else {
+              finalX[u.ids[0]] = slotCenter;
+            }
+            u.ids.forEach(id => fixed.add(id));
+          });
+        }
+
+        // ---- 4) 往下鋪開：從基準線每個單位出發，依血緣子女遞迴往下，用子樹所需寬度
+        //         置中排列；子女需要的空間不夠時，父母（甚至一路往上到基準線本身）的
+        //         間距會在第 3 步已經按子樹寬度分配好的前提下自然撐開，不需要另外處理。
+        //         每個人垂直位置沿用第 1 步水平分組校正後的高度，這裡只調整 X ----
+        function cascadeDown(p1Id, p2Id, midX, isOnlyChild) {
+          let p1Obj = people.find(x => x.id === p1Id); let p2Obj = p2Id ? people.find(x => x.id === p2Id) : null;
+          let coupleMidX = midX;
+          if (p2Obj) {
+            let [leftId, rightId] = orderByCurrentX(p1Id, p2Id);
+            if (isOnlyChild && p1Id === leftId) { finalX[p1Id] = midX; finalX[p2Id] = midX + 140; }
+            else if (isOnlyChild && p1Id === rightId) { finalX[p1Id] = midX; finalX[p2Id] = midX - 140; }
+            else { finalX[leftId] = midX - 70; finalX[rightId] = midX + 70; }
+            coupleMidX = (finalX[leftId] + finalX[rightId]) / 2;
+            fixed.add(leftId); fixed.add(rightId);
+          } else { finalX[p1Id] = midX; fixed.add(p1Id); }
+
+          let children = getOrderedChildren(p1Obj, p2Obj);
+          if (children.length === 0) return;
+          let childWidths = children.map(cId => {
+            let childObj = people.find(x => x.id === cId);
+            return childObj && childObj.spouse ? computeSubtreeWidth(cId, childObj.spouse) : computeSubtreeWidth(cId, null);
+          });
+          let totalW = childWidths.reduce((a, b) => a + b, 0);
+          let startX = coupleMidX - totalW / 2; let cur = startX;
+          let onlyChild = children.length === 1;
+          children.forEach((cId, i) => {
+            let cx = cur + childWidths[i] / 2; cur += childWidths[i];
+            let childObj = people.find(x => x.id === cId);
+            if (childObj && childObj.spouse) cascadeDown(cId, childObj.spouse, cx, onlyChild);
+            else cascadeDown(cId, null, cx, onlyChild);
+          });
+        }
+        {
+          let processed = new Set();
+          baselineRow.forEach(id => {
+            if (processed.has(id)) return;
+            let p = people.find(x => x.id === id);
+            let spouseId = (p.spouse && baselineRow.includes(p.spouse)) ? p.spouse : null;
+            processed.add(id); if (spouseId) processed.add(spouseId);
+            if (spouseId) cascadeDown(id, spouseId, (finalX[id] + finalX[spouseId]) / 2, false);
+            else cascadeDown(id, null, finalX[id], false);
+          });
+        }
+
+        // ---- 5) 往上置中：一開始，所有還沒被上面步驟固定、且沒有子女的人視為已固定
+        //         （維持原位，做為旁支的基準）。之後逐輪找出血緣子女（不含子女配偶）都已
+        //         固定的父母，把這對父母（夫妻整體）永遠精準置中在子女最左到最右的正中央。
+        //         這裡只負責決定「哪些父母需要置中、依什麼順序（由下往上、同輩由左到右）
+        //         處理」並記錄成 centeringOrder，實際反覆置中＋撐開間距的動作交給下面
+        //         第5.5步的迴圈執行，直到兩個規則都同時滿足為止 ----
+        people.forEach(p => { if (!fixed.has(p.id) && (!p.children || p.children.length === 0)) fixed.add(p.id); });
+
+        // 整理過程中，任何時候移動人物位置，都必須確保同一水平線上任兩人（不論是否為
+        // 夫妻、親子或毫不相干的旁支）中心距離至少 MIN_GAP（＝新增人物時夫妻間距的
+        // 140px 標準），不得小於此值。
+        const MIN_GAP = 140;
+        let centeringOrder = [];
+        {
+          let changed = true, safety = 0;
+          while (changed && safety < 300) {
+            changed = false; safety++;
+            let candidates = [];
+            let seenCouple = new Set();
+            people.forEach(par => {
+              if (fixed.has(par.id) || seenCouple.has(par.id)) return;
+              let spouse = par.spouse ? (people.find(x => x.id === par.spouse) || null) : null;
+              let allChildren = new Set(par.children || []);
+              if (spouse) (spouse.children || []).forEach(c => allChildren.add(c));
+              if (allChildren.size === 0) return;
+              let childIds = Array.from(allChildren);
+              let allFixed = childIds.every(cId => fixed.has(cId) && finalX[cId] !== undefined);
+              if (!allFixed) return;
+              candidates.push({ parId: par.id, spouseId: spouse ? spouse.id : null, children: childIds });
+              seenCouple.add(par.id); if (spouse) seenCouple.add(spouse.id);
+            });
+            if (candidates.length === 0) break;
+            // 依目前 x 位置由左到右處理，讓「同一水平線上是否已固定」的判斷有一致順序
+            candidates.sort((a, b) => finalX[a.parId] - finalX[b.parId]);
+            candidates.forEach(cand => {
+              let xs = cand.children.map(cId => finalX[cId]);
+              let targetCenter = (Math.min(...xs) + Math.max(...xs)) / 2;
+              let ids = cand.spouseId ? [cand.parId, cand.spouseId].sort((a, b) => finalX[a] - finalX[b]) : [cand.parId];
+              let currentCenter = ids.length > 1 ? (finalX[ids[0]] + finalX[ids[1]]) / 2 : finalX[ids[0]];
+
+              // 父母（夫妻整體）永遠置中對齊在血緣子女最左到最右的正中央，不論同一水平線
+              // 上是否有其他已固定的人物，都一律置中到底，不打折扣、不因為避讓而維持原位；
+              // 置中後如果因此跟旁人距離小於140px，交由下面第5.5步的迴圈統一撐開處理，
+              // 而不是在這裡為了避讓而放棄置中。
+              let dx = targetCenter - currentCenter;
+              if (Math.abs(dx) >= 0.5) {
+                finalX[cand.parId] += dx;
+                if (cand.spouseId) finalX[cand.spouseId] += dx;
+              }
+              fixed.add(cand.parId);
+              if (cand.spouseId) fixed.add(cand.spouseId);
+              changed = true;
+              centeringOrder.push({ parId: cand.parId, spouseId: cand.spouseId, children: cand.children });
+            });
+          }
+        }
+
+        // ---- 5.5) 置中／間距收斂迴圈：「父母置中」與「至少140px間距」這兩條規則會
+        //           互相牽動——把父母移去置中，可能讓它跟旁邊的人距離小於140px，於是
+        //           被間距檢查往右推開；但推開之後父母又不再置中於子女正中央了。因此
+        //           這裡不是各執行一次就結束，而是用迴圈反覆執行：每一輪先做一次「同一
+        //           水平線間距至少140px」檢查（不足就把右側推開），再依照上面
+        //           centeringOrder 記錄的順序（由下往上、同輩由左到右）重新把每個父母
+        //           （夫妻整體）置中對齊到子女目前最新的正中央（子女位置可能因間距
+        //           檢查而移動了，所以要用最新座標重算），如此反覆執行，直到某一輪
+        //           「間距檢查」跟「置中檢查」都沒有再移動任何人為止（或達到安全上限），
+        //           確保最終所有父母都同時滿足「精準置中」與「至少140px間距」這兩條
+        //           規則，不會像單次執行那樣互相打架、顧此失彼 ----
+        function enforceRowMinGapOnce() {
+          let moved = false;
+          rowGroups.forEach(rowIds => {
+            if (rowIds.length < 2) return;
+            let sorted = rowIds.slice().sort((a, b) => finalX[a] - finalX[b]);
+            for (let i = 1; i < sorted.length; i++) {
+              let gap = finalX[sorted[i]] - finalX[sorted[i - 1]];
+              if (gap < MIN_GAP - 0.01) {
+                let shift = MIN_GAP - gap;
+                for (let j = i; j < sorted.length; j++) finalX[sorted[j]] += shift;
+                moved = true;
+              }
+            }
+          });
+          return moved;
+        }
+        function recenterAllOnce() {
+          let moved = false;
+          centeringOrder.forEach(cand => {
+            let xs = cand.children.map(cId => finalX[cId]);
+            let targetCenter = (Math.min(...xs) + Math.max(...xs)) / 2;
+            let ids = cand.spouseId ? [cand.parId, cand.spouseId].sort((a, b) => finalX[a] - finalX[b]) : [cand.parId];
+            let currentCenter = ids.length > 1 ? (finalX[ids[0]] + finalX[ids[1]]) / 2 : finalX[ids[0]];
+            let dx = targetCenter - currentCenter;
+            if (Math.abs(dx) >= 0.5) {
+              finalX[cand.parId] += dx;
+              if (cand.spouseId) finalX[cand.spouseId] += dx;
+              moved = true;
+            }
+          });
+          return moved;
+        }
+        {
+          let safety = 0;
+          while (safety < 100) {
+            safety++;
+            let gapMoved = enforceRowMinGapOnce();
+            let centerMoved = recenterAllOnce();
+            if (!gapMoved && !centerMoved) break;
+          }
+          // 收斂後最後再保底檢查一次間距，避免最後一輪剛好是「置中」把距離擠到低於
+          // 140px、卻沒有再跑一次間距檢查就結束迴圈
+          enforceRowMinGapOnce();
+        }
+
+        // ---- 寫回 nodeOffsets（未處理到的人物位置維持不變，只更新座標位移量）----
+        people.forEach(p => {
+          let base = baseCoords[p.id] || { x: 0, y: 0 };
+          nodeOffsets[p.id] = {
+            x: (finalX[p.id] !== undefined ? finalX[p.id] : base.x) - base.x,
+            y: (finalY[p.id] !== undefined ? finalY[p.id] : base.y) - base.y
+          };
+        });
+
         window.currentViewBox = null;
         renderGenogram();
         commitHistory();
-      });
+      }
     }
 
     // ===== 人物圖案特殊樣式繪製（雙層外框／左上塗黑1/4） =====
